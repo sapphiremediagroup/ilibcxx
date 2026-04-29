@@ -65,6 +65,27 @@ int snprintf(char* buffer, size_t size, const char* format, ...) noexcept {
     return r;
 }
 
+int printf(const char* format, ...) noexcept {
+    char buffer[1024];
+    va_list args;
+    va_start(args, format);
+    int written = std::vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+    if (written > 0) {
+        std::size_t count = static_cast<std::size_t>(written);
+        if (count >= sizeof(buffer)) {
+            count = sizeof(buffer) - 1;
+        }
+        std::write(std::STDOUT_HANDLE, buffer, count);
+    }
+    return written;
+}
+
+int putchar(int c) noexcept {
+    const char ch = static_cast<char>(c);
+    return static_cast<int>(std::write(std::STDOUT_HANDLE, &ch, 1));
+}
+
 double sqrt(double x) noexcept { return std::sqrt(x); }
 double fabs(double x) noexcept { return std::fabs(x); }
 double sin(double x) noexcept { return std::sin(x); }

@@ -1,7 +1,14 @@
-#include <syscall.h>
-#include <stdio.h>
+#include <syscall.hpp>
+#include <cstring.hpp>
 
 extern "C" {
+
+namespace {
+[[noreturn]] void panic(const char* message) {
+    std::write(std::STDERR_HANDLE, message, std::strlen(message));
+    std::exit(0);
+}
+}
 
 #define MAX_ATEXIT 32
 
@@ -34,9 +41,7 @@ void __cxa_guard_abort(long* guard) {
 }
 
 void __cxa_pure_virtual() {
-    printf("Pure virtual function called!\n");
-    syscall0(0);
-    while(1);
+    panic("Pure virtual function called!\n");
 }
 
 int __cxa_atexit(destructor_func func, void* arg, void* dso_handle) {

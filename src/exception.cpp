@@ -1,6 +1,13 @@
-#include <stdio.h>
-#include <syscall.h>
+#include <syscall.hpp>
+#include <cstring.hpp>
 #include <cstdint>
+
+namespace {
+[[noreturn]] void panic(const char* message) {
+    std::write(std::STDERR_HANDLE, message, std::strlen(message));
+    std::exit(0);
+}
+}
 
 namespace __cxxabiv1 {
     struct __cxa_exception {
@@ -71,8 +78,7 @@ namespace __cxxabiv1 {
             
             eh_globals.uncaughtExceptions++;
             
-            printf("Exception thrown but no handler found\n");
-            syscall0(0);
+            panic("Exception thrown but no handler found\n");
         }
         
         void* __cxa_begin_catch(void* exc_obj_in) {
@@ -108,15 +114,13 @@ namespace __cxxabiv1 {
         void __cxa_rethrow() {
             __cxa_exception* header = eh_globals.caughtExceptions;
             if (!header) {
-                printf("Rethrow with no active exception\n");
-                syscall0(0);
+                panic("Rethrow with no active exception\n");
             }
             
             header->handlerCount--;
             eh_globals.uncaughtExceptions++;
             
-            printf("Exception rethrown but no handler found\n");
-            syscall0(0);
+            panic("Exception rethrown but no handler found\n");
         }
         
         void* __cxa_current_exception_type() {
@@ -125,23 +129,18 @@ namespace __cxxabiv1 {
         }
         
         void __cxa_call_unexpected(void* exc_obj_in) {
-            printf("Unexpected exception\n");
-            syscall0(0);
+            panic("Unexpected exception\n");
         }
     }
 }
 
 namespace std {
     void terminate() noexcept {
-        printf("std::terminate called\n");
-        syscall0(0);
-        while(1);
+        panic("std::terminate called\n");
     }
     
     void unexpected() {
-        printf("std::unexpected called\n");
-        syscall0(0);
-        while(1);
+        panic("std::unexpected called\n");
     }
 }
 
@@ -151,8 +150,7 @@ extern "C" {
     }
     
     void _Unwind_Resume(void*) {
-        printf("_Unwind_Resume called\n");
-        syscall0(0);
+        panic("_Unwind_Resume called\n");
     }
     
     typedef int _Unwind_Reason_Code;
@@ -162,8 +160,7 @@ extern "C" {
     struct _Unwind_Exception;
     
     _Unwind_Reason_Code _Unwind_RaiseException(_Unwind_Exception*) {
-        printf("_Unwind_RaiseException called\n");
-        syscall0(0);
+        panic("_Unwind_RaiseException called\n");
         return 0;
     }
     
