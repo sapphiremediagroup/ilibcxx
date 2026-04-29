@@ -337,6 +337,7 @@ enum class Syscall : uint64_t {
     ThreadCreate,
     ThreadExit,
     ThreadJoin,
+    Seek,
 };
 
 ThreadHandle thread_create(ThreadStartRoutine start, void* arg = nullptr, std::uint64_t stackSize = 0) noexcept;
@@ -390,6 +391,15 @@ inline FileHandle open(
 
 inline std::uint64_t close(Handle handle) noexcept {
     return _syscall_impl(static_cast<std::uint64_t>(Syscall::Close), handle);
+}
+
+inline std::uint64_t seek(FileHandle handle, std::int64_t offset, std::uint64_t whence) noexcept {
+    return _syscall_impl(
+        static_cast<std::uint64_t>(Syscall::Seek),
+        handle,
+        static_cast<std::uint64_t>(offset),
+        whence
+    );
 }
 
 inline std::uint64_t getpid() noexcept {

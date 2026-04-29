@@ -7,8 +7,6 @@
 extern "C" {
 typedef std::size_t size_t;
 typedef std::ptrdiff_t ptrdiff_t;
-typedef std::uintptr_t uintptr_t;
-typedef std::intptr_t intptr_t;
 }
 #else
 /* Prefer compiler provided underlying typedefs when available */
@@ -40,6 +38,14 @@ typedef long intptr_t;
 
 #ifndef NULL
 #define NULL ((void*)0)
+#endif
+
+#ifndef offsetof
+#if defined(__GNUC__) || defined(__clang__)
+#define offsetof(type, member) __builtin_offsetof(type, member)
+#else
+#define offsetof(type, member) ((size_t)&(((type*)0)->member))
+#endif
 #endif
 
 #endif /* LIBC_STDDEF_H */

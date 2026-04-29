@@ -10,12 +10,23 @@
 #include <syscall.hpp>
 #include <time.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <errno.h>
 #include <io.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <stdio.h>
+
+static FILE __stdin_file = { 0, 0, 0 };
+static FILE __stdout_file = { 1, 0, 0 };
+static FILE __stderr_file = { 2, 0, 0 };
 
 extern "C" int _fltused = 0;
 
 extern "C" int errno = 0;
+extern "C" FILE* stdin = &__stdin_file;
+extern "C" FILE* stdout = &__stdout_file;
+extern "C" FILE* stderr = &__stderr_file;
 
 static unsigned long __rand_state = 1;
 
@@ -43,15 +54,296 @@ void* calloc(size_t nmemb, size_t size) noexcept {
     return std::calloc(nmemb, size);
 }
 
+int open(const char* path, int flags, ...) {
+    if (path == nullptr) {
+        errno = EINVAL;
+        return -1;
+    }
+    const auto result = std::open(path, static_cast<std::uint64_t>(flags), 0);
+    if (result == static_cast<std::uint64_t>(-1)) {
+        errno = ENOENT;
+        return -1;
+    }
+    return static_cast<int>(result);
+}
+
+ssize_t read(int fd, void* buf, size_t count) {
+    if (buf == nullptr && count != 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    const auto result = std::read(static_cast<std::uint64_t>(fd), buf, count);
+    if (result == static_cast<std::uint64_t>(-1)) {
+        errno = EBADF;
+        return -1;
+    }
+    return static_cast<ssize_t>(result);
+}
+
+ssize_t write(int fd, const void* buf, size_t count) {
+    if (buf == nullptr && count != 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    const auto result = std::write(static_cast<std::uint64_t>(fd), buf, count);
+    if (result == static_cast<std::uint64_t>(-1)) {
+        errno = EBADF;
+        return -1;
+    }
+    return static_cast<ssize_t>(result);
+}
+
+int close(int fd) {
+    const auto result = std::close(static_cast<std::uint64_t>(fd));
+    if (result == static_cast<std::uint64_t>(-1)) {
+        errno = EBADF;
+        return -1;
+    }
+    return 0;
+}
+
+off_t lseek(int fd, off_t offset, int whence) {
+    const auto result = std::seek(static_cast<std::uint64_t>(fd), static_cast<std::int64_t>(offset),
+        static_cast<std::uint64_t>(whence));
+    if (result == static_cast<std::uint64_t>(-1)) {
+        errno = ESPIPE;
+        return static_cast<off_t>(-1);
+    }
+    return static_cast<off_t>(result);
+}
+
+int chdir(const char* path) {
+    if (path == nullptr) {
+        errno = EINVAL;
+        return -1;
+    }
+    const auto result = std::chdir(path);
+    if (result == static_cast<std::uint64_t>(-1)) {
+        errno = ENOENT;
+        return -1;
+    }
+    return 0;
+}
+
+char* getcwd(char* buf, size_t size) {
+    if (buf == nullptr || size == 0) {
+        errno = EINVAL;
+        return nullptr;
+    }
+    char* result = std::getcwd(buf, size);
+    if (result == nullptr || reinterpret_cast<std::uint64_t>(result) == static_cast<std::uint64_t>(-1)) {
+        errno = EINVAL;
+        return nullptr;
+    }
+    return result;
+}
+
+int unlink(const char* path) {
+    if (path == nullptr) {
+        errno = EINVAL;
+        return -1;
+    }
+    const auto result = std::unlink(path);
+    if (result == static_cast<std::uint64_t>(-1)) {
+        errno = ENOENT;
+        return -1;
+    }
+    return 0;
+}
+
 size_t strlen(const char* s) noexcept { return std::strlen(s); }
+void* memchr(const void* s, int c, size_t n) noexcept {
+    const unsigned char* bytes = static_cast<const unsigned char*>(s);
+    const unsigned char needle = static_cast<unsigned char>(c);
+    for (size_t i = 0; i < n; ++i) {
+        if (bytes[i] == needle) {
+            return const_cast<unsigned char*>(bytes + i);
+        }
+    }
+    return nullptr;
+}
 int strcmp(const char* a, const char* b) noexcept { return std::strcmp(a, b); }
 int strncmp(const char* a, const char* b, size_t n) noexcept { return std::strncmp(a, b, n); }
+char* strcat(char* dest, const char* src) noexcept {
+    char* out = dest + std::strlen(dest);
+    while (*src != '\0') {
+        *out++ = *src++;
+    }
+    *out = '\0';
+    return dest;
+}
 char* strcpy(char* dest, const char* src) noexcept { return std::strcpy(dest, src); }
 char* strncpy(char* dest, const char* src, size_t n) noexcept { return std::strncpy(dest, src, n); }
+char* strrchr(const char* s, int c) noexcept {
+    const char needle = static_cast<char>(c);
+    const char* last = nullptr;
+    for (;; ++s) {
+        if (*s == needle) {
+            last = s;
+        }
+        if (*s == '\0') {
+            break;
+        }
+    }
+    return const_cast<char*>(last);
+}
+char* strstr(const char* haystack, const char* needle) noexcept {
+    if (*needle == '\0') {
+        return const_cast<char*>(haystack);
+    }
+    for (const char* h = haystack; *h != '\0'; ++h) {
+        const char* hs = h;
+        const char* ns = needle;
+        while (*hs != '\0' && *ns != '\0' && *hs == *ns) {
+            ++hs;
+            ++ns;
+        }
+        if (*ns == '\0') {
+            return const_cast<char*>(h);
+        }
+    }
+    return nullptr;
+}
 void* memcpy(void* dest, const void* src, size_t n) noexcept { return std::memcpy(dest, src, n); }
 void* memmove(void* dest, const void* src, size_t n) noexcept { return std::memmove(dest, src, n); }
 void* memset(void* dest, int val, size_t n) noexcept { return std::memset(dest, val, n); }
 int memcmp(const void* a, const void* b, size_t n) noexcept { return std::memcmp(a, b, n); }
+
+long strtol(const char* nptr, char** endptr, int base) {
+    if (nptr == nullptr) {
+        if (endptr) {
+            *endptr = nullptr;
+        }
+        errno = EINVAL;
+        return 0;
+    }
+
+    const char* p = nptr;
+    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r' || *p == '\f' || *p == '\v') {
+        ++p;
+    }
+
+    int sign = 1;
+    if (*p == '+' || *p == '-') {
+        sign = (*p == '-') ? -1 : 1;
+        ++p;
+    }
+
+    if (base == 0) {
+        if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
+            base = 16;
+            p += 2;
+        } else if (p[0] == '0') {
+            base = 8;
+            ++p;
+        } else {
+            base = 10;
+        }
+    } else if (base == 16 && p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
+        p += 2;
+    }
+
+    if (base < 2 || base > 36) {
+        if (endptr) {
+            *endptr = const_cast<char*>(nptr);
+        }
+        errno = EINVAL;
+        return 0;
+    }
+
+    unsigned long value = 0;
+    bool any = false;
+    for (;; ++p) {
+        int digit;
+        if (*p >= '0' && *p <= '9') {
+            digit = *p - '0';
+        } else if (*p >= 'a' && *p <= 'z') {
+            digit = *p - 'a' + 10;
+        } else if (*p >= 'A' && *p <= 'Z') {
+            digit = *p - 'A' + 10;
+        } else {
+            break;
+        }
+
+        if (digit >= base) {
+            break;
+        }
+
+        any = true;
+        value = value * static_cast<unsigned long>(base) + static_cast<unsigned long>(digit);
+    }
+
+    if (endptr) {
+        *endptr = const_cast<char*>(any ? p : nptr);
+    }
+
+    if (!any) {
+        return 0;
+    }
+
+    if (sign < 0) {
+        const unsigned long limit = static_cast<unsigned long>(LONG_MAX) + 1UL;
+        if (value > limit) {
+            errno = ERANGE;
+            return LONG_MIN;
+        }
+        if (value == limit) {
+            return LONG_MIN;
+        }
+        return -static_cast<long>(value);
+    }
+
+    if (value > static_cast<unsigned long>(LONG_MAX)) {
+        errno = ERANGE;
+        return LONG_MAX;
+    }
+
+    return static_cast<long>(value);
+}
+
+char* getenv(const char* name) {
+    (void)name;
+    return nullptr;
+}
+
+static void qsort_swap(unsigned char* a, unsigned char* b, size_t size) {
+    for (size_t i = 0; i < size; ++i) {
+        const unsigned char tmp = a[i];
+        a[i] = b[i];
+        b[i] = tmp;
+    }
+}
+
+static void qsort_impl(unsigned char* base, long left, long right, size_t size,
+                       int (*compar)(const void*, const void*)) {
+    if (left >= right) {
+        return;
+    }
+
+    const long pivot_index = left + (right - left) / 2;
+    unsigned char* pivot = base + static_cast<size_t>(pivot_index) * size;
+    qsort_swap(pivot, base + static_cast<size_t>(right) * size, size);
+
+    long store = left;
+    for (long i = left; i < right; ++i) {
+        unsigned char* current = base + static_cast<size_t>(i) * size;
+        if (compar(current, base + static_cast<size_t>(right) * size) < 0) {
+            qsort_swap(base + static_cast<size_t>(store) * size, current, size);
+            ++store;
+        }
+    }
+
+    qsort_swap(base + static_cast<size_t>(store) * size, base + static_cast<size_t>(right) * size, size);
+    qsort_impl(base, left, store - 1, size, compar);
+    qsort_impl(base, store + 1, right, size, compar);
+}
+
+void qsort(void* base, size_t nmemb, size_t size, int (*compar)(const void*, const void*)) {
+    if (base == nullptr || compar == nullptr || nmemb < 2 || size == 0) {
+        return;
+    }
+    qsort_impl(static_cast<unsigned char*>(base), 0, static_cast<long>(nmemb - 1), size, compar);
+}
 
 int vsnprintf(char* buffer, size_t size, const char* format, va_list args) noexcept {
     return std::vsnprintf(buffer, size, format, args);
@@ -84,6 +376,186 @@ int printf(const char* format, ...) noexcept {
 int putchar(int c) noexcept {
     const char ch = static_cast<char>(c);
     return static_cast<int>(std::write(std::STDOUT_HANDLE, &ch, 1));
+}
+
+FILE* fopen(const char* path, const char* mode) {
+    if (path == nullptr || mode == nullptr || mode[0] == '\0') {
+        errno = EINVAL;
+        return nullptr;
+    }
+
+    int flags = O_RDONLY;
+    switch (mode[0]) {
+        case 'r':
+            flags = O_RDONLY;
+            break;
+        case 'w':
+            flags = O_WRONLY;
+            break;
+        case 'a':
+            flags = O_WRONLY;
+            break;
+        default:
+            errno = EINVAL;
+            return nullptr;
+    }
+
+    bool plus = false;
+    for (const char* p = mode + 1; *p != '\0'; ++p) {
+        if (*p == '+') {
+            plus = true;
+            break;
+        }
+    }
+
+    if (plus) {
+        flags = O_RDWR;
+    }
+
+    FILE* stream = static_cast<FILE*>(std::malloc(sizeof(FILE)));
+    if (stream == nullptr) {
+        errno = ENOMEM;
+        return nullptr;
+    }
+
+    const int fd = open(path, flags);
+    if (fd < 0) {
+        std::free(stream);
+        return nullptr;
+    }
+
+    stream->fd = fd;
+    stream->eof = 0;
+    stream->error = 0;
+
+    if (mode[0] == 'a') {
+        if (lseek(fd, 0, SEEK_END) < 0) {
+            close(fd);
+            std::free(stream);
+            return nullptr;
+        }
+    }
+
+    return stream;
+}
+
+int fclose(FILE* stream) {
+    if (stream == nullptr) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    const int result = close(stream->fd);
+    if (stream != stdin && stream != stdout && stream != stderr) {
+        std::free(stream);
+    } else {
+        stream->eof = 0;
+        stream->error = 0;
+    }
+    return result;
+}
+
+size_t fread(void* ptr, size_t size, size_t count, FILE* stream) {
+    if (stream == nullptr || (ptr == nullptr && size != 0 && count != 0)) {
+        errno = EINVAL;
+        return 0;
+    }
+    if (size == 0 || count == 0) {
+        return 0;
+    }
+
+    const size_t total = size * count;
+    const ssize_t result = read(stream->fd, ptr, total);
+    if (result < 0) {
+        stream->error = 1;
+        return 0;
+    }
+    if (result == 0) {
+        stream->eof = 1;
+        return 0;
+    }
+    if (static_cast<size_t>(result) < total) {
+        stream->eof = 1;
+    }
+    return static_cast<size_t>(result) / size;
+}
+
+size_t fwrite(const void* ptr, size_t size, size_t count, FILE* stream) {
+    if (stream == nullptr || (ptr == nullptr && size != 0 && count != 0)) {
+        errno = EINVAL;
+        return 0;
+    }
+    if (size == 0 || count == 0) {
+        return 0;
+    }
+
+    const size_t total = size * count;
+    const ssize_t result = write(stream->fd, ptr, total);
+    if (result < 0) {
+        stream->error = 1;
+        return 0;
+    }
+    return static_cast<size_t>(result) / size;
+}
+
+int fseek(FILE* stream, long offset, int whence) {
+    if (stream == nullptr) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (lseek(stream->fd, static_cast<off_t>(offset), whence) < 0) {
+        stream->error = 1;
+        return -1;
+    }
+    stream->eof = 0;
+    return 0;
+}
+
+long ftell(FILE* stream) {
+    if (stream == nullptr) {
+        errno = EINVAL;
+        return -1L;
+    }
+    const off_t result = lseek(stream->fd, 0, SEEK_CUR);
+    if (result < 0) {
+        stream->error = 1;
+        return -1L;
+    }
+    return static_cast<long>(result);
+}
+
+int fflush(FILE* stream) {
+    if (stream == nullptr) {
+        return 0;
+    }
+    return stream->error ? -1 : 0;
+}
+
+int feof(FILE* stream) {
+    return stream ? stream->eof : 0;
+}
+
+int ferror(FILE* stream) {
+    return stream ? stream->error : 0;
+}
+
+void clearerr(FILE* stream) {
+    if (stream) {
+        stream->eof = 0;
+        stream->error = 0;
+    }
+}
+
+int fileno(FILE* stream) {
+    if (stream == nullptr) {
+        errno = EINVAL;
+        return -1;
+    }
+    return stream->fd;
+}
+
+int remove(const char* path) {
+    return unlink(path);
 }
 
 double sqrt(double x) noexcept { return std::sqrt(x); }
@@ -349,6 +821,10 @@ void exit(int status) {
 
 void abort(void) {
     std::exit(1);
+}
+
+void __stack_chk_fail(void) {
+    abort();
 }
 
 void __assert_fail(const char* expr, const char* file, int line, const char* func) {
