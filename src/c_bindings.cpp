@@ -22,6 +22,7 @@ static FILE __stdout_file = { 1, 0, 0 };
 static FILE __stderr_file = { 2, 0, 0 };
 
 extern "C" int _fltused = 0;
+extern "C" void __chkstk() {}
 
 extern "C" int errno = 0;
 extern "C" FILE* stdin = &__stdin_file;

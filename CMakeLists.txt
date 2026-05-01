@@ -29,7 +29,7 @@ target_link_libraries(ilibcxx
     PUBLIC
         ${ILIBCXX_FREETYPE_ARCHIVE}
 )
-target_compile_options(ilibcxx PRIVATE ${USER_CXX_FLAGS})
+target_compile_options(ilibcxx PRIVATE ${USER_CXX_FLAGS} ${SIZE_CXX_FLAGS})
 
 install(TARGETS ilibcxx
     EXPORT ilibcxxTargets

@@ -135,7 +135,8 @@ enum KeyModifiers : uint16_t {
     KeyModifierShift = 1 << 0,
     KeyModifierControl = 1 << 1,
     KeyModifierAlt = 1 << 2,
-    KeyModifierCapsLock = 1 << 3
+    KeyModifierCapsLock = 1 << 3,
+    KeyModifierSuper = 1 << 4
 };
 
 enum class PointerEventAction : uint16_t {
@@ -190,6 +191,79 @@ struct Event {
         WindowEvent window;
         uint8_t raw[48];
     };
+};
+
+struct GPUCapsetInfo {
+    std::uint32_t index;
+    std::uint32_t capsetId;
+    std::uint32_t capsetMaxVersion;
+    std::uint32_t capsetMaxSize;
+};
+
+struct GPUCapsetData {
+    std::uint32_t capsetId;
+    std::uint32_t capsetVersion;
+    std::uint32_t bufferSize;
+    std::uint32_t actualSize;
+    std::uint64_t buffer;
+};
+
+struct GPUContextCreate {
+    std::uint32_t ctxId;
+    std::uint32_t capsetId;
+    std::uint32_t contextInit;
+    std::uint8_t ringIdx;
+    std::uint8_t useRingIdx;
+    std::uint8_t reserved[2];
+    char debugName[64];
+};
+
+struct GPUResourceCreate3D {
+    std::uint32_t ctxId;
+    std::uint32_t resourceId;
+    std::uint32_t target;
+    std::uint32_t format;
+    std::uint32_t bind;
+    std::uint32_t width;
+    std::uint32_t height;
+    std::uint32_t depth;
+    std::uint32_t arraySize;
+    std::uint32_t lastLevel;
+    std::uint32_t nrSamples;
+    std::uint32_t flags;
+};
+
+struct GPUResourceDestroy {
+    std::uint32_t ctxId;
+    std::uint32_t resourceId;
+    std::uint8_t hasBacking;
+    std::uint8_t reserved[3];
+};
+
+struct GPUResourceUUID {
+    std::uint32_t resourceId;
+    std::uint8_t uuid[16];
+};
+
+struct GPUSubmit3D {
+    std::uint32_t ctxId;
+    std::uint32_t size;
+    std::uint64_t commands;
+    std::uint8_t transportOk;
+    std::uint8_t responseOk;
+    std::uint8_t reserved[6];
+    std::uint32_t responseType;
+    std::uint64_t submittedFence;
+    std::uint64_t completedFence;
+};
+
+struct GPUWaitFence {
+    std::uint64_t fenceId;
+    std::uint64_t timeoutIterations;
+    std::uint64_t completedFence;
+    std::uint32_t responseType;
+    std::uint8_t completed;
+    std::uint8_t reserved[3];
 };
 
 enum class FileType : int {
@@ -338,6 +412,15 @@ enum class Syscall : uint64_t {
     ThreadExit,
     ThreadJoin,
     Seek,
+    GPUCapsetInfo,
+    GPUCapset,
+    GPUContextCreate,
+    GPUContextDestroy,
+    GPUResourceCreate3D,
+    GPUResourceDestroy,
+    GPUResourceAssignUUID,
+    GPUSubmit3D,
+    GPUWaitFence,
 };
 
 ThreadHandle thread_create(ThreadStartRoutine start, void* arg = nullptr, std::uint64_t stackSize = 0) noexcept;
@@ -491,6 +574,66 @@ inline std::uint64_t fb_flush(
         y,
         w,
         h
+    );
+}
+
+inline std::uint64_t gpu_capset_info(GPUCapsetInfo* info) noexcept {
+    return _syscall_impl(
+        static_cast<std::uint64_t>(Syscall::GPUCapsetInfo),
+        reinterpret_cast<std::uint64_t>(info)
+    );
+}
+
+inline std::uint64_t gpu_capset(GPUCapsetData* data) noexcept {
+    return _syscall_impl(
+        static_cast<std::uint64_t>(Syscall::GPUCapset),
+        reinterpret_cast<std::uint64_t>(data)
+    );
+}
+
+inline std::uint64_t gpu_context_create(GPUContextCreate* create) noexcept {
+    return _syscall_impl(
+        static_cast<std::uint64_t>(Syscall::GPUContextCreate),
+        reinterpret_cast<std::uint64_t>(create)
+    );
+}
+
+inline std::uint64_t gpu_context_destroy(std::uint32_t ctxId) noexcept {
+    return _syscall_impl(static_cast<std::uint64_t>(Syscall::GPUContextDestroy), ctxId);
+}
+
+inline std::uint64_t gpu_resource_create_3d(GPUResourceCreate3D* create) noexcept {
+    return _syscall_impl(
+        static_cast<std::uint64_t>(Syscall::GPUResourceCreate3D),
+        reinterpret_cast<std::uint64_t>(create)
+    );
+}
+
+inline std::uint64_t gpu_resource_destroy(GPUResourceDestroy* destroy) noexcept {
+    return _syscall_impl(
+        static_cast<std::uint64_t>(Syscall::GPUResourceDestroy),
+        reinterpret_cast<std::uint64_t>(destroy)
+    );
+}
+
+inline std::uint64_t gpu_resource_assign_uuid(GPUResourceUUID* uuid) noexcept {
+    return _syscall_impl(
+        static_cast<std::uint64_t>(Syscall::GPUResourceAssignUUID),
+        reinterpret_cast<std::uint64_t>(uuid)
+    );
+}
+
+inline std::uint64_t gpu_submit_3d(GPUSubmit3D* submit) noexcept {
+    return _syscall_impl(
+        static_cast<std::uint64_t>(Syscall::GPUSubmit3D),
+        reinterpret_cast<std::uint64_t>(submit)
+    );
+}
+
+inline std::uint64_t gpu_wait_fence(GPUWaitFence* wait) noexcept {
+    return _syscall_impl(
+        static_cast<std::uint64_t>(Syscall::GPUWaitFence),
+        reinterpret_cast<std::uint64_t>(wait)
     );
 }
 
