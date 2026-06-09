@@ -34,6 +34,8 @@ enum {
 
 int vsnprintf(char* buffer, size_t size, const char* format, va_list args) LIBCXX_NOEXCEPT;
 int snprintf(char* buffer, size_t size, const char* format, ...) LIBCXX_NOEXCEPT;
+int vsprintf(char* buffer, const char* format, va_list args) LIBCXX_NOEXCEPT;
+int sprintf(char* buffer, const char* format, ...) LIBCXX_NOEXCEPT;
 int printf(const char* format, ...) LIBCXX_NOEXCEPT;
 int putchar(int c) LIBCXX_NOEXCEPT;
 FILE* fopen(const char* path, const char* mode);
@@ -48,6 +50,7 @@ int ferror(FILE* stream);
 void clearerr(FILE* stream);
 int fileno(FILE* stream);
 int remove(const char* path);
+int rename(const char* oldpath, const char* newpath);
 
 #ifdef __cplusplus
 }

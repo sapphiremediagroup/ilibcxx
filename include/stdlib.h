@@ -13,6 +13,7 @@ void* realloc(void* ptr, size_t size);
 void* calloc(size_t nmemb, size_t size);
 int abs(int x);
 long strtol(const char* nptr, char** endptr, int base);
+double strtod(const char* nptr, char** endptr);
 char* getenv(const char* name);
 void qsort(void* base, size_t nmemb, size_t size,
            int (*compar)(const void*, const void*));

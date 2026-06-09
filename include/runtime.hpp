@@ -1,5 +1,5 @@
 #pragma once
 
-extern "C" void userland_entry() noexcept;
+extern "C" [[noreturn]] void userland_entry(unsigned long long argc, char** argv, char** envp) noexcept;
 
-int main();
+int main(int argc, char** argv);

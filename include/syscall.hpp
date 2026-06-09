@@ -25,6 +25,52 @@ struct OSInfo {
     uint64_t buildnum;
 };
 
+struct ProcInfoEntry {
+    uint32_t pid;
+    uint32_t parentPID;
+    uint32_t uid;
+    uint32_t gid;
+    uint32_t sessionID;
+    uint32_t state;
+    uint32_t priority;
+    uint32_t flags;
+    int32_t exitCode;
+    char name[64];
+};
+
+enum StorageInfoFlags : uint32_t {
+    StorageInfoPresent = 1 << 0,
+    StorageInfoReadable = 1 << 1,
+    StorageInfoWritable = 1 << 2,
+    StorageInfoMounted = 1 << 3,
+    StorageInfoFormatted = 1 << 4,
+};
+
+struct StorageInfo {
+    uint64_t totalSize;
+    uint32_t sectorSize;
+    uint32_t flags;
+    int32_t mountError;
+    uint32_t reserved;
+    char deviceName[32];
+    char fsType[16];
+    char mountPath[64];
+};
+
+struct SigActionInfo {
+    std::uint64_t handler;
+    std::uint64_t mask;
+    std::uint64_t flags;
+    std::uint64_t restorer;
+};
+
+struct SignalStackInfo {
+    std::uint64_t sp;
+    std::uint64_t size;
+    std::uint32_t flags;
+    std::uint32_t reserved;
+};
+
 struct LoginInfo {
     char username[32];
     char password[64];
@@ -53,6 +99,12 @@ struct Stat {
     uint64_t st_atime;
     uint64_t st_mtime;
     uint64_t st_ctime;
+};
+
+struct PollFD {
+    std::int64_t fd;
+    std::int16_t events;
+    std::int16_t revents;
 };
 
 struct UserInfo {
@@ -300,7 +352,8 @@ enum class HandleType : uint16_t {
     SharedMemory,
     GpuContext,
     Font,
-    Pipe
+    Pipe,
+    Socket
 };
 
 inline constexpr std::uint64_t HANDLE_TYPE_SHIFT = 48;
@@ -421,7 +474,52 @@ enum class Syscall : uint64_t {
     GPUResourceAssignUUID,
     GPUSubmit3D,
     GPUWaitFence,
+    GetUnixTime,
+    SerialWrite,
+    Fcntl,
+    Mprotect,
+    Poll,
+    Truncate,
+    Rename,
+    Chmod,
+    Utime,
+    Fstat,
+    Link,
+    Symlink,
+    Readlink,
+    Lstat,
+    Sigprocmask,
+    Socket,
+    Bind,
+    Connect,
+    Listen,
+    Accept,
+    Send,
+    Recv,
+    Shutdown,
+    GetSockOpt,
+    SetSockOpt,
+    StorageInfo,
+    StorageFormat,
+    StorageMount,
+    Sigaction,
+    Sigaltstack,
+    ThreadSignal,
 };
+
+enum MemoryProtection : std::uint64_t {
+    MemoryProtRead = 1ULL << 0,
+    MemoryProtWrite = 1ULL << 1,
+    MemoryProtExecute = 1ULL << 2,
+};
+
+inline constexpr bool syscall_failed(std::uint64_t result) noexcept {
+    return result >= static_cast<std::uint64_t>(-4095);
+}
+
+inline constexpr std::uint64_t syscall_legacy_result(std::uint64_t result) noexcept {
+    return syscall_failed(result) ? static_cast<std::uint64_t>(-1) : result;
+}
 
 ThreadHandle thread_create(ThreadStartRoutine start, void* arg = nullptr, std::uint64_t stackSize = 0) noexcept;
 [[noreturn]] void thread_exit(std::uint64_t code = 0) noexcept;
@@ -442,21 +540,29 @@ inline std::uint64_t osinfo(OSInfo* info) noexcept {
 }
 
 inline std::uint64_t write(FileHandle fileHandle, const void* buffer, std::uint64_t count) noexcept {
-    return _syscall_impl(
+    return syscall_legacy_result(_syscall_impl(
         static_cast<std::uint64_t>(Syscall::Write),
         fileHandle,
+        reinterpret_cast<std::uint64_t>(buffer),
+        count
+    ));
+}
+
+inline std::uint64_t serial_write(const void* buffer, std::uint64_t count) noexcept {
+    return _syscall_impl(
+        static_cast<std::uint64_t>(Syscall::SerialWrite),
         reinterpret_cast<std::uint64_t>(buffer),
         count
     );
 }
 
 inline std::uint64_t read(FileHandle fileHandle, void* buffer, std::uint64_t count) noexcept {
-    return _syscall_impl(
+    return syscall_legacy_result(_syscall_impl(
         static_cast<std::uint64_t>(Syscall::Read),
         fileHandle,
         reinterpret_cast<std::uint64_t>(buffer),
         count
-    );
+    ));
 }
 
 inline FileHandle open(
@@ -464,25 +570,34 @@ inline FileHandle open(
     std::uint64_t flags = 0,
     std::uint64_t mode = 0
 ) noexcept {
-    return _syscall_impl(
+    return syscall_legacy_result(_syscall_impl(
         static_cast<std::uint64_t>(Syscall::Open),
         reinterpret_cast<std::uint64_t>(path),
         flags,
         mode
-    );
+    ));
 }
 
 inline std::uint64_t close(Handle handle) noexcept {
-    return _syscall_impl(static_cast<std::uint64_t>(Syscall::Close), handle);
+    return syscall_legacy_result(_syscall_impl(static_cast<std::uint64_t>(Syscall::Close), handle));
 }
 
 inline std::uint64_t seek(FileHandle handle, std::int64_t offset, std::uint64_t whence) noexcept {
-    return _syscall_impl(
+    return syscall_legacy_result(_syscall_impl(
         static_cast<std::uint64_t>(Syscall::Seek),
         handle,
         static_cast<std::uint64_t>(offset),
         whence
-    );
+    ));
+}
+
+inline std::uint64_t fcntl(Handle handle, std::uint64_t command, std::uint64_t value = 0) noexcept {
+    return syscall_legacy_result(_syscall_impl(
+        static_cast<std::uint64_t>(Syscall::Fcntl),
+        handle,
+        command,
+        value
+    ));
 }
 
 inline std::uint64_t getpid() noexcept {
@@ -490,7 +605,7 @@ inline std::uint64_t getpid() noexcept {
 }
 
 inline std::uint64_t fork() noexcept {
-    return _syscall_impl(static_cast<std::uint64_t>(Syscall::Fork));
+    return syscall_legacy_result(_syscall_impl(static_cast<std::uint64_t>(Syscall::Fork)));
 }
 
 inline std::uint64_t exec(
@@ -498,29 +613,39 @@ inline std::uint64_t exec(
     const char* const* argv = nullptr,
     const char* const* envp = nullptr
 ) noexcept {
-    return _syscall_impl(
+    return syscall_legacy_result(_syscall_impl(
         static_cast<std::uint64_t>(Syscall::Exec),
         reinterpret_cast<std::uint64_t>(path),
         reinterpret_cast<std::uint64_t>(argv),
         reinterpret_cast<std::uint64_t>(envp)
-    );
+    ));
 }
 
-inline std::uint64_t wait(std::uint64_t pid, int* status = nullptr) noexcept {
-    return _syscall_impl(
+inline std::uint64_t wait(std::uint64_t pid, int* status = nullptr, std::uint64_t options = 0) noexcept {
+    return syscall_legacy_result(_syscall_impl(
         static_cast<std::uint64_t>(Syscall::Wait),
         pid,
-        reinterpret_cast<std::uint64_t>(status)
-    );
+        reinterpret_cast<std::uint64_t>(status),
+        options
+    ));
 }
 
 inline std::uint64_t kill(std::uint64_t pid, std::uint64_t sig) noexcept {
-    return _syscall_impl(static_cast<std::uint64_t>(Syscall::Kill), pid, sig);
+    return syscall_legacy_result(_syscall_impl(static_cast<std::uint64_t>(Syscall::Kill), pid, sig));
 }
 
 inline void* mmap(void* address, std::uint64_t length, std::uint64_t protection = 0) noexcept {
-    return reinterpret_cast<void*>(_syscall_impl(
+    return reinterpret_cast<void*>(syscall_legacy_result(_syscall_impl(
         static_cast<std::uint64_t>(Syscall::Mmap),
+        reinterpret_cast<std::uint64_t>(address),
+        length,
+        protection
+    )));
+}
+
+inline std::uint64_t mprotect(void* address, std::uint64_t length, std::uint64_t protection) noexcept {
+    return syscall_legacy_result(_syscall_impl(
+        static_cast<std::uint64_t>(Syscall::Mprotect),
         reinterpret_cast<std::uint64_t>(address),
         length,
         protection
@@ -528,11 +653,11 @@ inline void* mmap(void* address, std::uint64_t length, std::uint64_t protection 
 }
 
 inline std::uint64_t munmap(void* address, std::uint64_t length) noexcept {
-    return _syscall_impl(
+    return syscall_legacy_result(_syscall_impl(
         static_cast<std::uint64_t>(Syscall::Munmap),
         reinterpret_cast<std::uint64_t>(address),
         length
-    );
+    ));
 }
 
 inline std::uint64_t yield() noexcept {
@@ -545,6 +670,10 @@ inline std::uint64_t sleep(std::uint64_t ms) noexcept {
 
 inline std::uint64_t gettime() noexcept {
     return _syscall_impl(static_cast<std::uint64_t>(Syscall::GetTime));
+}
+
+inline std::uint64_t getunixtime() noexcept {
+    return _syscall_impl(static_cast<std::uint64_t>(Syscall::GetUnixTime));
 }
 
 inline std::uint64_t clear() noexcept {
@@ -649,6 +778,40 @@ inline std::uint64_t sigreturn() noexcept {
     return _syscall_impl(static_cast<std::uint64_t>(Syscall::SigReturn));
 }
 
+inline std::uint64_t sigprocmask(std::uint64_t how, const std::uint64_t* set, std::uint64_t* oldset) noexcept {
+    return syscall_legacy_result(_syscall_impl(
+        static_cast<std::uint64_t>(Syscall::Sigprocmask),
+        how,
+        reinterpret_cast<std::uint64_t>(set),
+        reinterpret_cast<std::uint64_t>(oldset)
+    ));
+}
+
+inline std::uint64_t sigaction(std::uint64_t sig, const SigActionInfo* act, SigActionInfo* oldact) noexcept {
+    return syscall_legacy_result(_syscall_impl(
+        static_cast<std::uint64_t>(Syscall::Sigaction),
+        sig,
+        reinterpret_cast<std::uint64_t>(act),
+        reinterpret_cast<std::uint64_t>(oldact)
+    ));
+}
+
+inline std::uint64_t sigaltstack(const SignalStackInfo* stack, SignalStackInfo* oldStack) noexcept {
+    return syscall_legacy_result(_syscall_impl(
+        static_cast<std::uint64_t>(Syscall::Sigaltstack),
+        reinterpret_cast<std::uint64_t>(stack),
+        reinterpret_cast<std::uint64_t>(oldStack)
+    ));
+}
+
+inline std::uint64_t thread_signal(ThreadHandle handle, std::uint64_t sig) noexcept {
+    return syscall_legacy_result(_syscall_impl(
+        static_cast<std::uint64_t>(Syscall::ThreadSignal),
+        handle,
+        sig
+    ));
+}
+
 inline std::uint64_t login(const LoginInfo* info) noexcept {
     if (info == nullptr) {
         return static_cast<std::uint64_t>(-1);
@@ -721,48 +884,56 @@ inline std::uint64_t getsessioninfo(std::uint64_t session_id, SessionInfo* info)
 }
 
 inline std::uint64_t chdir(const char* path) noexcept {
-    return _syscall_impl(
+    return syscall_legacy_result(_syscall_impl(
         static_cast<std::uint64_t>(Syscall::Chdir),
         reinterpret_cast<std::uint64_t>(path)
-    );
-}
-
-inline char* getcwd(char* buffer, std::size_t size) noexcept {
-    return reinterpret_cast<char*>(_syscall_impl(
-        static_cast<std::uint64_t>(Syscall::Getcwd),
-        reinterpret_cast<std::uint64_t>(buffer),
-        size
     ));
 }
 
+inline char* getcwd(char* buffer, std::size_t size) noexcept {
+    return reinterpret_cast<char*>(syscall_legacy_result(_syscall_impl(
+        static_cast<std::uint64_t>(Syscall::Getcwd),
+        reinterpret_cast<std::uint64_t>(buffer),
+        size
+    )));
+}
+
 inline std::uint64_t mkdir(const char* path, std::uint64_t mode = 0755) noexcept {
-    return _syscall_impl(
+    return syscall_legacy_result(_syscall_impl(
         static_cast<std::uint64_t>(Syscall::Mkdir),
         reinterpret_cast<std::uint64_t>(path),
         mode
-    );
+    ));
 }
 
 inline std::uint64_t rmdir(const char* path) noexcept {
-    return _syscall_impl(
+    return syscall_legacy_result(_syscall_impl(
         static_cast<std::uint64_t>(Syscall::Rmdir),
         reinterpret_cast<std::uint64_t>(path)
-    );
+    ));
 }
 
 inline std::uint64_t unlink(const char* path) noexcept {
-    return _syscall_impl(
+    return syscall_legacy_result(_syscall_impl(
         static_cast<std::uint64_t>(Syscall::Unlink),
         reinterpret_cast<std::uint64_t>(path)
-    );
+    ));
+}
+
+inline std::uint64_t link(const char* oldPath, const char* newPath) noexcept {
+    return syscall_legacy_result(_syscall_impl(
+        static_cast<std::uint64_t>(Syscall::Link),
+        reinterpret_cast<std::uint64_t>(oldPath),
+        reinterpret_cast<std::uint64_t>(newPath)
+    ));
 }
 
 inline std::uint64_t stat(const char* path, Stat* statbuf) noexcept {
-    return _syscall_impl(
+    return syscall_legacy_result(_syscall_impl(
         static_cast<std::uint64_t>(Syscall::Stat),
         reinterpret_cast<std::uint64_t>(path),
         reinterpret_cast<std::uint64_t>(statbuf)
-    );
+    ));
 }
 
 inline Handle duplicate_handle(Handle handle) noexcept {
@@ -782,9 +953,17 @@ inline std::uint64_t dup2(Handle oldHandle, Handle newHandle) noexcept {
 }
 
 inline std::uint64_t pipe(Handle* pipeHandles) noexcept {
-    return _syscall_impl(
+    return syscall_legacy_result(_syscall_impl(
         static_cast<std::uint64_t>(Syscall::Pipe),
         reinterpret_cast<std::uint64_t>(pipeHandles)
+    ));
+}
+
+inline std::uint64_t poll(PollFD* fds, std::uint64_t nfds) noexcept {
+    return _syscall_impl(
+        static_cast<std::uint64_t>(Syscall::Poll),
+        reinterpret_cast<std::uint64_t>(fds),
+        nfds
     );
 }
 
@@ -797,12 +976,12 @@ inline std::uint64_t spawn(
     const char* const* argv = nullptr,
     const char* const* envp = nullptr
 ) noexcept {
-    return _syscall_impl(
+    return syscall_legacy_result(_syscall_impl(
         static_cast<std::uint64_t>(Syscall::Spawn),
         reinterpret_cast<std::uint64_t>(path),
         reinterpret_cast<std::uint64_t>(argv),
         reinterpret_cast<std::uint64_t>(envp)
-    );
+    ));
 }
 
 inline std::uint64_t getuserinfo(std::uint64_t uid, UserInfo* info) noexcept {
@@ -818,12 +997,12 @@ inline std::uint64_t readdir(
     DirEntry* entries,
     std::uint64_t count
 ) noexcept {
-    return _syscall_impl(
+    return syscall_legacy_result(_syscall_impl(
         static_cast<std::uint64_t>(Syscall::Readdir),
         reinterpret_cast<std::uint64_t>(path),
         reinterpret_cast<std::uint64_t>(entries),
         count
-    );
+    ));
 }
 
 inline Handle shared_alloc(std::uint64_t size) noexcept {

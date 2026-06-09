@@ -1,6 +1,7 @@
 #include <syscall.hpp>
 #include <cstring.hpp>
 #include <cstdint>
+#include <cstddef.hpp>
 
 namespace {
 [[noreturn]] void panic(const char* message) {
@@ -42,8 +43,8 @@ namespace __cxxabiv1 {
             return &eh_globals;
         }
         
-        void* __cxa_allocate_exception(size_t thrown_size) {
-            size_t size = thrown_size + sizeof(__cxa_exception);
+        void* __cxa_allocate_exception(std::size_t thrown_size) {
+            std::size_t size = thrown_size + sizeof(__cxa_exception);
             void* mem = operator new(size);
             
             __cxa_exception* header = reinterpret_cast<__cxa_exception*>(mem);

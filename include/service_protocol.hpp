@@ -102,6 +102,11 @@ inline constexpr char NAME[] = "process.manager";
 inline constexpr std::uint16_t VERSION = 1;
 }
 
+namespace network_manager {
+inline constexpr char NAME[] = "network.manager";
+inline constexpr std::uint16_t VERSION = 1;
+}
+
 namespace font_manager {
 inline constexpr char NAME[] = "font.manager";
 inline constexpr std::uint16_t VERSION = 1;

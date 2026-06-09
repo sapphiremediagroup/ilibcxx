@@ -22,6 +22,7 @@ typedef int clockid_t;
 
 int clock_gettime(clockid_t clk_id, struct timespec* tp);
 time_t time(time_t* t);
+int utimensat(int dirfd, const char* pathname, const struct timespec times[2], int flags);
 
 #ifdef __cplusplus
 }
