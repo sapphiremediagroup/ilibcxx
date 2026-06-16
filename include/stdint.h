@@ -5,7 +5,16 @@
 extern "C" {
 #endif
 
-/* Prefer compiler-provided type macros when available */
+/* Prefer compiler-provided type macros when available.
+ *
+ * The fixed-width integer typedefs are wrapped in the shared __int8_t_defined
+ * guard (the same glibc/BSD convention used by our <stddef.h>, including tcc's
+ * private stddef.h). This lets whichever header is included first define these
+ * types while the other skips them, so the two never collide regardless of
+ * include order. The 64-bit fallback selects `long` on LP64 targets to match
+ * the SysV ABI (and tcc's __LP64__ stddef.h) rather than `long long`. */
+#ifndef __int8_t_defined
+#define __int8_t_defined
 #if defined(__INT8_TYPE__)
 typedef __INT8_TYPE__ int8_t;
 #else
@@ -44,15 +53,20 @@ typedef unsigned int uint32_t;
 
 #if defined(__INT64_TYPE__)
 typedef __INT64_TYPE__ int64_t;
+#elif defined(__LP64__) || (defined(__SIZEOF_LONG__) && __SIZEOF_LONG__ == 8)
+typedef long int64_t;
 #else
 typedef long long int64_t;
 #endif
 
 #if defined(__UINT64_TYPE__)
 typedef __UINT64_TYPE__ uint64_t;
+#elif defined(__LP64__) || (defined(__SIZEOF_LONG__) && __SIZEOF_LONG__ == 8)
+typedef unsigned long uint64_t;
 #else
 typedef unsigned long long uint64_t;
 #endif
+#endif /* __int8_t_defined */
 
 #if defined(__INTPTR_TYPE__)
 typedef __INTPTR_TYPE__ intptr_t;
