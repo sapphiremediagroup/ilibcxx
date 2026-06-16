@@ -33,6 +33,8 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <sys/time.h>
+#include <inttypes.h>
 
 static FILE __stdin_file = { 0, 0, 0 };
 static FILE __stdout_file = { 1, 0, 0 };
@@ -1057,6 +1059,62 @@ int execve(const char* path, char* const argv[], char* const envp[]) {
     return static_cast<int>(result);
 }
 
+int execvp(const char* file, char* const argv[]) {
+    if (file == nullptr || file[0] == '\0') {
+        errno = ENOENT;
+        return -1;
+    }
+
+    static char* empty_env[] = { nullptr };
+
+    for (const char* p = file; *p != '\0'; ++p) {
+        if (*p == '/') {
+            return execve(file, argv, empty_env);
+        }
+    }
+
+    const char* path = getenv("PATH");
+    if (path == nullptr || path[0] == '\0') {
+        path = "/bin:/usr/bin";
+    }
+
+    char candidate[512];
+    const char* segment = path;
+    while (*segment != '\0') {
+        const char* end = segment;
+        while (*end != '\0' && *end != ':') {
+            ++end;
+        }
+
+        std::size_t pos = 0;
+        if (end == segment) {
+            candidate[pos++] = '.';
+        } else {
+            for (const char* p = segment; p < end && pos + 1 < sizeof(candidate); ++p) {
+                candidate[pos++] = *p;
+            }
+        }
+        if (pos != 0 && candidate[pos - 1] != '/' && pos + 1 < sizeof(candidate)) {
+            candidate[pos++] = '/';
+        }
+        for (const char* p = file; *p != '\0' && pos + 1 < sizeof(candidate); ++p) {
+            candidate[pos++] = *p;
+        }
+        candidate[pos] = '\0';
+
+        execve(candidate, argv, empty_env);
+
+        if (*end == ':') {
+            segment = end + 1;
+        } else {
+            break;
+        }
+    }
+
+    errno = ENOENT;
+    return -1;
+}
+
 pid_t waitpid(pid_t pid, int* status, int options) {
     for (;;) {
         const auto result = _syscall_impl(
@@ -1530,6 +1588,86 @@ double strtod(const char* nptr, char** endptr) {
     return sign < 0 ? -value : value;
 }
 
+float strtof(const char* nptr, char** endptr) {
+    return static_cast<float>(strtod(nptr, endptr));
+}
+
+long double strtold(const char* nptr, char** endptr) {
+    return static_cast<long double>(strtod(nptr, endptr));
+}
+
+intmax_t strtoimax(const char* nptr, char** endptr, int base) {
+    return static_cast<intmax_t>(strtol(nptr, endptr, base));
+}
+
+static uintmax_t parse_unsigned_integer(const char* nptr, char** endptr, int base) {
+    const char* s = nptr;
+    while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r' || *s == '\f' || *s == '\v') {
+        ++s;
+    }
+
+    bool negative = false;
+    if (*s == '+') {
+        ++s;
+    } else if (*s == '-') {
+        negative = true;
+        ++s;
+    }
+
+    if (base == 0) {
+        base = 10;
+        if (s[0] == '0') {
+            base = 8;
+            if (s[1] == 'x' || s[1] == 'X') {
+                base = 16;
+                s += 2;
+            }
+        }
+    } else if (base == 16 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+        s += 2;
+    }
+
+    uintmax_t value = 0;
+    bool any = false;
+    for (;;) {
+        int digit = -1;
+        if (*s >= '0' && *s <= '9') {
+            digit = *s - '0';
+        } else if (*s >= 'a' && *s <= 'z') {
+            digit = *s - 'a' + 10;
+        } else if (*s >= 'A' && *s <= 'Z') {
+            digit = *s - 'A' + 10;
+        }
+        if (digit < 0 || digit >= base) {
+            break;
+        }
+        value = value * static_cast<uintmax_t>(base) + static_cast<uintmax_t>(digit);
+        any = true;
+        ++s;
+    }
+
+    if (endptr) {
+        *endptr = const_cast<char*>(any ? s : nptr);
+    }
+    return negative ? static_cast<uintmax_t>(-static_cast<intmax_t>(value)) : value;
+}
+
+uintmax_t strtoumax(const char* nptr, char** endptr, int base) {
+    return parse_unsigned_integer(nptr, endptr, base);
+}
+
+unsigned long strtoul(const char* nptr, char** endptr, int base) {
+    return static_cast<unsigned long>(parse_unsigned_integer(nptr, endptr, base));
+}
+
+unsigned long long strtoull(const char* nptr, char** endptr, int base) {
+    return static_cast<unsigned long long>(parse_unsigned_integer(nptr, endptr, base));
+}
+
+int atoi(const char* nptr) {
+    return static_cast<int>(strtol(nptr, nullptr, 10));
+}
+
 char* getenv(const char* name) {
     (void)name;
     return nullptr;
@@ -1598,6 +1736,92 @@ int sprintf(char* buffer, const char* format, ...) noexcept {
     return r;
 }
 
+int sscanf(const char* str, const char* format, ...) {
+    if (str == nullptr || format == nullptr) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    va_list args;
+    va_start(args, format);
+
+    const char* input = str;
+    int assigned = 0;
+    for (const char* f = format; *f != '\0'; ++f) {
+        if (*f == ' ' || *f == '\t' || *f == '\n' || *f == '\r' || *f == '\f' || *f == '\v') {
+            while (*input == ' ' || *input == '\t' || *input == '\n' || *input == '\r' || *input == '\f' || *input == '\v') {
+                ++input;
+            }
+            continue;
+        }
+
+        if (*f != '%') {
+            if (*input != *f) {
+                break;
+            }
+            ++input;
+            continue;
+        }
+
+        ++f;
+        bool longLongValue = false;
+        bool longValue = false;
+        if (*f == 'l') {
+            longValue = true;
+            ++f;
+            if (*f == 'l') {
+                longLongValue = true;
+                ++f;
+            }
+        }
+
+        int base = 10;
+        bool signedValue = false;
+        if (*f == 'd' || *f == 'i') {
+            signedValue = true;
+            base = *f == 'i' ? 0 : 10;
+        } else if (*f == 'u') {
+            base = 10;
+        } else if (*f == 'x' || *f == 'X') {
+            base = 16;
+        } else {
+            break;
+        }
+
+        char* end = nullptr;
+        if (signedValue) {
+            long value = strtol(input, &end, base);
+            if (end == input) {
+                break;
+            }
+            if (longLongValue) {
+                *va_arg(args, long long*) = static_cast<long long>(value);
+            } else if (longValue) {
+                *va_arg(args, long*) = value;
+            } else {
+                *va_arg(args, int*) = static_cast<int>(value);
+            }
+        } else {
+            unsigned long long value = strtoull(input, &end, base);
+            if (end == input) {
+                break;
+            }
+            if (longLongValue) {
+                *va_arg(args, unsigned long long*) = value;
+            } else if (longValue) {
+                *va_arg(args, unsigned long*) = static_cast<unsigned long>(value);
+            } else {
+                *va_arg(args, unsigned int*) = static_cast<unsigned int>(value);
+            }
+        }
+        input = end;
+        ++assigned;
+    }
+
+    va_end(args);
+    return assigned;
+}
+
 int printf(const char* format, ...) noexcept {
     char buffer[1024];
     va_list args;
@@ -1609,14 +1833,91 @@ int printf(const char* format, ...) noexcept {
         if (count >= sizeof(buffer)) {
             count = sizeof(buffer) - 1;
         }
-        std::write(std::STDOUT_HANDLE, buffer, count);
+        std::serial_write(buffer, count);
     }
     return written;
 }
 
+int vfprintf(FILE* stream, const char* format, va_list args) noexcept {
+    if (stream == nullptr || format == nullptr) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    char buffer[1024];
+    int written = std::vsnprintf(buffer, sizeof(buffer), format, args);
+    if (written <= 0) {
+        return written;
+    }
+
+    std::size_t count = static_cast<std::size_t>(written);
+    if (count >= sizeof(buffer)) {
+        count = sizeof(buffer) - 1;
+    }
+
+    if (stream->fd == 1 || stream->fd == 2) {
+        std::serial_write(buffer, count);
+        return written;
+    }
+
+    const ssize_t result = write(stream->fd, buffer, count);
+    if (result < 0) {
+        stream->error = 1;
+        return -1;
+    }
+    if (static_cast<std::size_t>(result) < count) {
+        stream->error = 1;
+    }
+    return written;
+}
+
+int fprintf(FILE* stream, const char* format, ...) noexcept {
+    va_list args;
+    va_start(args, format);
+    int result = vfprintf(stream, format, args);
+    va_end(args);
+    return result;
+}
+
+int fputs(const char* s, FILE* stream) {
+    if (s == nullptr || stream == nullptr) {
+        errno = EINVAL;
+        return EOF;
+    }
+    const std::size_t length = std::strlen(s);
+    if (stream->fd == 1 || stream->fd == 2) {
+        std::serial_write(s, length);
+        return static_cast<int>(length);
+    }
+    const ssize_t written = write(stream->fd, s, length);
+    if (written < 0) {
+        stream->error = 1;
+        return EOF;
+    }
+    return static_cast<int>(written);
+}
+
+int fputc(int c, FILE* stream) {
+    char ch = static_cast<char>(c);
+    if (stream == nullptr) {
+        errno = EINVAL;
+        return EOF;
+    }
+    if (stream->fd == 1 || stream->fd == 2) {
+        std::serial_write(&ch, 1);
+        return static_cast<unsigned char>(ch);
+    }
+    const ssize_t written = write(stream->fd, &ch, 1);
+    if (written != 1) {
+        stream->error = 1;
+        return EOF;
+    }
+    return static_cast<unsigned char>(ch);
+}
+
 int putchar(int c) noexcept {
     const char ch = static_cast<char>(c);
-    return static_cast<int>(std::write(std::STDOUT_HANDLE, &ch, 1));
+    return std::serial_write(&ch, 1) == static_cast<std::uint64_t>(-1) ? EOF : ch;
 }
 
 FILE* fopen(const char* path, const char* mode) {
@@ -1631,10 +1932,10 @@ FILE* fopen(const char* path, const char* mode) {
             flags = O_RDONLY;
             break;
         case 'w':
-            flags = O_WRONLY;
+            flags = O_WRONLY | O_CREAT | O_TRUNC;
             break;
         case 'a':
-            flags = O_WRONLY;
+            flags = O_WRONLY | O_CREAT | O_APPEND;
             break;
         default:
             errno = EINVAL;
@@ -1677,6 +1978,28 @@ FILE* fopen(const char* path, const char* mode) {
         }
     }
 
+    return stream;
+}
+
+FILE* fdopen(int fd, const char* mode) {
+    if (fd < 0 || mode == nullptr || mode[0] == '\0') {
+        errno = EINVAL;
+        return nullptr;
+    }
+
+    FILE* stream = static_cast<FILE*>(std::malloc(sizeof(FILE)));
+    if (stream == nullptr) {
+        errno = ENOMEM;
+        return nullptr;
+    }
+
+    stream->fd = fd;
+    stream->eof = 0;
+    stream->error = 0;
+
+    if (mode[0] == 'a') {
+        lseek(fd, 0, SEEK_END);
+    }
     return stream;
 }
 
@@ -2605,7 +2928,7 @@ void __assert_fail(const char* expr, const char* file, int line, const char* fun
     int n = std::snprintf(buf, sizeof(buf), "Assertion failed: %s, function %s, file %s, line %d\n",
                          expr ? expr : "(null)", func ? func : "(null)", file ? file : "(null)", line);
     if (n > 0) {
-        std::write(2, buf, static_cast<std::uint64_t>(n));
+        std::serial_write(buf, static_cast<std::uint64_t>(n));
     }
     std::exit(1);
 }
@@ -2614,6 +2937,76 @@ time_t time(time_t* t) {
     time_t sec = static_cast<time_t>(std::getunixtime());
     if (t) *t = sec;
     return sec;
+}
+
+static bool is_leap_year(int year) {
+    return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+}
+
+struct tm* localtime(const time_t* timer) {
+    static struct tm result;
+    time_t seconds = timer ? *timer : time(nullptr);
+    if (seconds < 0) {
+        seconds = 0;
+    }
+
+    long days = static_cast<long>(seconds / 86400);
+    long rem = static_cast<long>(seconds % 86400);
+    result.tm_hour = static_cast<int>(rem / 3600);
+    rem %= 3600;
+    result.tm_min = static_cast<int>(rem / 60);
+    result.tm_sec = static_cast<int>(rem % 60);
+    result.tm_wday = static_cast<int>((days + 4) % 7);
+
+    int year = 1970;
+    while (true) {
+        const int yearDays = is_leap_year(year) ? 366 : 365;
+        if (days < yearDays) {
+            break;
+        }
+        days -= yearDays;
+        ++year;
+    }
+
+    static constexpr int monthDaysCommon[12] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+    result.tm_year = year - 1900;
+    result.tm_yday = static_cast<int>(days);
+    int month = 0;
+    while (month < 12) {
+        int monthDays = monthDaysCommon[month];
+        if (month == 1 && is_leap_year(year)) {
+            monthDays = 29;
+        }
+        if (days < monthDays) {
+            break;
+        }
+        days -= monthDays;
+        ++month;
+    }
+    result.tm_mon = month;
+    result.tm_mday = static_cast<int>(days) + 1;
+    result.tm_isdst = 0;
+    return &result;
+}
+
+int gettimeofday(struct timeval* tv, struct timezone* tz) {
+    if (tv == nullptr) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    const std::uint64_t now = std::getunixtime();
+    if (syscall_failed(now)) {
+        return syscall_fail(now, EINVAL);
+    }
+
+    tv->tv_sec = static_cast<long>(now);
+    tv->tv_usec = 0;
+    if (tz != nullptr) {
+        tz->tz_minuteswest = 0;
+        tz->tz_dsttime = 0;
+    }
+    return 0;
 }
 
 int clock_gettime(int clk_id, struct timespec* tp) {

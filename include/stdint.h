@@ -66,6 +66,18 @@ typedef __UINTPTR_TYPE__ uintptr_t;
 typedef unsigned long uintptr_t;
 #endif
 
+#if defined(__INTMAX_TYPE__)
+typedef __INTMAX_TYPE__ intmax_t;
+#else
+typedef long long intmax_t;
+#endif
+
+#if defined(__UINTMAX_TYPE__)
+typedef __UINTMAX_TYPE__ uintmax_t;
+#else
+typedef unsigned long long uintmax_t;
+#endif
+
 #ifdef __cplusplus
 }
 #endif

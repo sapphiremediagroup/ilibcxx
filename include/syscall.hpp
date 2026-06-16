@@ -115,6 +115,35 @@ struct UserInfo {
     char shell[256];
 };
 
+// PTY / TTY support (matches the kernel's KernelWinsize / KernelTermios and
+// the ioctl request numbers in include/cpu/tty/pty.hpp).
+struct Winsize {
+    std::uint16_t ws_row;
+    std::uint16_t ws_col;
+    std::uint16_t ws_xpixel;
+    std::uint16_t ws_ypixel;
+};
+
+struct KTermios {
+    std::uint32_t c_iflag;
+    std::uint32_t c_oflag;
+    std::uint32_t c_cflag;
+    std::uint32_t c_lflag;
+    std::uint8_t c_line;
+    std::uint8_t c_cc[32];
+    std::uint32_t c_ibaud;
+    std::uint32_t c_obaud;
+};
+
+inline constexpr std::uint64_t TIOCSCTTY = 0x540E;
+inline constexpr std::uint64_t TIOCGPGRP = 0x540F;
+inline constexpr std::uint64_t TIOCSPGRP = 0x5410;
+inline constexpr std::uint64_t TIOCGWINSZ = 0x5413;
+inline constexpr std::uint64_t TIOCSWINSZ = 0x5414;
+inline constexpr std::uint64_t TIOCGPTN = 0x80045430;
+inline constexpr std::uint64_t TCGETS = 0x5401;
+inline constexpr std::uint64_t TCSETS = 0x5402;
+
 struct SurfaceInfo {
     std::uint64_t id;
     std::uint32_t width;
@@ -318,6 +347,38 @@ struct GPUWaitFence {
     std::uint8_t reserved[3];
 };
 
+struct GPUVenusProbe {
+    std::uint8_t available;
+    std::uint8_t replyOk;
+    std::uint8_t reserved[2];
+    std::uint32_t capsetVersion;
+    std::uint32_t wireFormatVersion;
+    std::uint32_t vkXmlVersion;
+    std::uint32_t instanceVersion;
+    std::uint32_t responseType;
+};
+
+struct GPUVenusVulkan {
+    std::uint8_t ringOk;
+    std::uint8_t instanceOk;
+    std::uint8_t physDevOk;
+    std::uint8_t propsOk;
+    std::uint8_t deviceOk;
+    std::uint8_t computeOk;
+    std::uint8_t reserved[2];
+    std::uint32_t physDevCount;
+    std::uint32_t apiVersion;
+    std::uint32_t driverVersion;
+    std::uint32_t vendorId;
+    std::uint32_t deviceId;
+    std::uint32_t deviceType;
+    std::uint32_t computeElements;
+    std::uint32_t computeMismatches;
+    std::uint64_t instanceHandle;
+    std::uint64_t deviceHandle;
+    char deviceName[256];
+};
+
 enum class FileType : int {
     Regular,
     Directory,
@@ -505,6 +566,17 @@ enum class Syscall : uint64_t {
     Sigaction,
     Sigaltstack,
     ThreadSignal,
+    SetThreadPointer,
+    Ioctl,
+    Access,
+    Statfs,
+    Chown,
+    Mknod,
+    GetEntropy,
+    GetSockName,
+    GetPeerName,
+    GPUVenusProbeCall,
+    GPUVenusVulkanCall,
 };
 
 enum MemoryProtection : std::uint64_t {
@@ -580,6 +652,15 @@ inline FileHandle open(
 
 inline std::uint64_t close(Handle handle) noexcept {
     return syscall_legacy_result(_syscall_impl(static_cast<std::uint64_t>(Syscall::Close), handle));
+}
+
+inline std::uint64_t ioctl(FileHandle handle, std::uint64_t request, std::uint64_t arg = 0) noexcept {
+    return syscall_legacy_result(_syscall_impl(
+        static_cast<std::uint64_t>(Syscall::Ioctl),
+        handle,
+        request,
+        arg
+    ));
 }
 
 inline std::uint64_t seek(FileHandle handle, std::int64_t offset, std::uint64_t whence) noexcept {
@@ -763,6 +844,25 @@ inline std::uint64_t gpu_wait_fence(GPUWaitFence* wait) noexcept {
     return _syscall_impl(
         static_cast<std::uint64_t>(Syscall::GPUWaitFence),
         reinterpret_cast<std::uint64_t>(wait)
+    );
+}
+
+// Probe Venus (Vulkan over virtio-gpu) availability and perform a synchronous
+// vkEnumerateInstanceVersion round trip against the host renderer. Fills *probe.
+inline std::uint64_t gpu_venus_probe(GPUVenusProbe* probe) noexcept {
+    return _syscall_impl(
+        static_cast<std::uint64_t>(Syscall::GPUVenusProbeCall),
+        reinterpret_cast<std::uint64_t>(probe)
+    );
+}
+
+// Bring up a fuller Vulkan surface over the Venus async ring: create an
+// instance, enumerate physical devices, read device 0 properties, and create a
+// logical device. Fills *result.
+inline std::uint64_t gpu_venus_vulkan(GPUVenusVulkan* result) noexcept {
+    return _syscall_impl(
+        static_cast<std::uint64_t>(Syscall::GPUVenusVulkanCall),
+        reinterpret_cast<std::uint64_t>(result)
     );
 }
 

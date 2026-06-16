@@ -5,7 +5,7 @@
 
 namespace {
 [[noreturn]] void panic(const char* message) {
-    std::write(std::STDERR_HANDLE, message, std::strlen(message));
+    std::serial_write(message, std::strlen(message));
     std::exit(0);
 }
 }

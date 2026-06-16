@@ -36,9 +36,15 @@ int vsnprintf(char* buffer, size_t size, const char* format, va_list args) LIBCX
 int snprintf(char* buffer, size_t size, const char* format, ...) LIBCXX_NOEXCEPT;
 int vsprintf(char* buffer, const char* format, va_list args) LIBCXX_NOEXCEPT;
 int sprintf(char* buffer, const char* format, ...) LIBCXX_NOEXCEPT;
+int sscanf(const char* str, const char* format, ...);
 int printf(const char* format, ...) LIBCXX_NOEXCEPT;
+int vfprintf(FILE* stream, const char* format, va_list args) LIBCXX_NOEXCEPT;
+int fprintf(FILE* stream, const char* format, ...) LIBCXX_NOEXCEPT;
+int fputs(const char* s, FILE* stream);
+int fputc(int c, FILE* stream);
 int putchar(int c) LIBCXX_NOEXCEPT;
 FILE* fopen(const char* path, const char* mode);
+FILE* fdopen(int fd, const char* mode);
 int fclose(FILE* stream);
 size_t fread(void* ptr, size_t size, size_t count, FILE* stream);
 size_t fwrite(const void* ptr, size_t size, size_t count, FILE* stream);

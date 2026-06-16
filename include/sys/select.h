@@ -2,6 +2,7 @@
 #define LIBC_SYS_SELECT_H
 
 #include <sys/types.h>
+#include <sys/time.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -12,11 +13,6 @@ extern "C" {
 typedef struct {
     unsigned long fds_bits[FD_SETSIZE / (8 * sizeof(unsigned long))];
 } fd_set;
-
-struct timeval {
-    long tv_sec;
-    long tv_usec;
-};
 
 #define FD_ZERO(set) do { \
     for (int __i = 0; __i < (int)(FD_SETSIZE / (8 * sizeof(unsigned long))); ++__i) { \

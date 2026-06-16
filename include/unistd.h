@@ -36,6 +36,7 @@ int tcsetpgrp(int fd, pid_t pgrp);
 int isatty(int fd);
 int fork(void);
 int execve(const char* path, char* const argv[], char* const envp[]);
+int execvp(const char* file, char* const argv[]);
 unsigned int sleep(unsigned int seconds);
 
 #define STDIN_FILENO 0
