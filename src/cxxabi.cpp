@@ -24,10 +24,17 @@ struct atexit_entry {
 static atexit_entry atexit_funcs[MAX_ATEXIT];
 static int atexit_count = 0;
 
-extern init_func __init_array_start[];
-extern init_func __init_array_end[];
-extern init_func __fini_array_start[];
-extern init_func __fini_array_end[];
+// .init_array/.fini_array boundary symbols. lld defines these as local hidden
+// symbols in every module, but GNU ld does not provide them for a *shared*
+// object whose .init_array is empty (libinstant has no dynamic constructors —
+// there is no .init_array section, so _init/_fini iterate an empty range).
+// Declaring them weak lets the reference resolve to 0 under GNU ld (start==end,
+// empty loop) instead of becoming a GLOBAL-undefined dynamic symbol the runtime
+// loader then fails on; harmless under lld, where they are still defined.
+extern init_func __init_array_start[] __attribute__((weak));
+extern init_func __init_array_end[] __attribute__((weak));
+extern init_func __fini_array_start[] __attribute__((weak));
+extern init_func __fini_array_end[] __attribute__((weak));
 
 int __cxa_guard_acquire(long* guard) {
     return !*(char*)guard;
