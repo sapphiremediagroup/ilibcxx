@@ -11,6 +11,11 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 file(GLOB ILIBC_SOURCES CONFIGURE_DEPENDS src/*.cpp)
+# The UI library (include/ui): its drawing loops run per pixel for every
+# window and the compositor, so it is built for speed, not size.
+file(GLOB ILIBC_UI_SOURCES CONFIGURE_DEPENDS src/ui/*.cpp)
+list(APPEND ILIBC_SOURCES ${ILIBC_UI_SOURCES})
+set_source_files_properties(${ILIBC_UI_SOURCES} PROPERTIES COMPILE_OPTIONS "-O2;-finline-functions")
 list(REMOVE_ITEM ILIBC_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/runtime.cpp)
 list(REMOVE_ITEM ILIBC_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/c_runtime.cpp)
 list(REMOVE_ITEM ILIBC_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/window_runtime.cpp)

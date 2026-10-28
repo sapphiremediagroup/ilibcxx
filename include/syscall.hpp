@@ -25,6 +25,50 @@ struct OSInfo {
     uint64_t buildnum;
 };
 
+// One CPU, as reported by the CpuInfo syscall.
+struct CpuInfoEntry {
+    uint32_t index;         // SMP index (0 = boot CPU)
+    uint32_t lapicId;
+    uint64_t deviceIrqs;    // device interrupts this CPU served
+    uint32_t currentPid;    // 0 while idle
+    uint32_t reserved;
+};
+
+// Interface configuration, read with NetGetConfig and set with NetSetConfig.
+// Addresses are IPv4 in network byte order, as in sockaddr_in.
+constexpr std::uint32_t NET_CONFIG_MAX_DNS = 3;
+constexpr std::uint32_t NET_CONFIG_DOMAIN_SIZE = 64;
+
+enum NetConfigFlags : std::uint32_t {
+    NetConfigUp = 1u << 0,      // an address is configured
+    NetConfigDhcp = 1u << 1,    // ... and it came from a DHCP lease
+};
+
+// NetSetConfig modes.
+enum NetConfigMode : std::uint64_t {
+    NetConfigStatic = 0,        // use address/netmask/gateway/dns from the struct
+    NetConfigDhcpStart = 1,     // drop the address and ask DHCP from scratch
+    NetConfigDhcpRenew = 2,     // renew the current lease now
+    NetConfigDown = 3,          // no address, DHCP off
+};
+
+struct NetConfig {
+    std::uint32_t flags;           // NetConfigFlags
+    std::uint32_t address;
+    std::uint32_t netmask;
+    std::uint32_t gateway;
+    std::uint32_t dns[NET_CONFIG_MAX_DNS];
+    std::uint32_t dnsCount;
+    std::uint32_t dhcpServer;      // 0 unless from DHCP
+    std::uint32_t leaseSeconds;    // granted lease, 0xFFFFFFFF = infinite
+    std::uint32_t leaseRemaining;  // seconds left on it
+    std::uint32_t ntpServer;       // NTP server (DHCP option 42), 0 if none
+    std::uint64_t generation;      // changes whenever the configuration does
+    char domain[NET_CONFIG_DOMAIN_SIZE];   // DHCP domain name, "" if none
+    std::uint32_t linkUp;          // 1 while the NIC has a link
+    char device[16];               // driver of the NIC in use ("e1000", "rtl8168h", ...), "" if none
+};
+
 struct ProcInfoEntry {
     uint32_t pid;
     uint32_t parentPID;
@@ -217,7 +261,30 @@ enum KeyModifiers : uint16_t {
     KeyModifierControl = 1 << 1,
     KeyModifierAlt = 1 << 2,
     KeyModifierCapsLock = 1 << 3,
-    KeyModifierSuper = 1 << 4
+    KeyModifierSuper = 1 << 4,
+    KeyModifierNumLock = 1 << 5
+};
+
+// Key codes: the USB HID keyboard usage (page 0x07) of the physical key,
+// whichever keyboard it came from (PS/2 scancodes are translated). They name
+// keys, not characters: KeyEvent.text carries what the key typed.
+enum KeyCode : std::uint16_t {
+    KeyNone = 0x00,
+    KeyA = 0x04, KeyB, KeyC, KeyD, KeyE, KeyF, KeyG, KeyH, KeyI, KeyJ, KeyK, KeyL, KeyM,
+    KeyN, KeyO, KeyP, KeyQ, KeyR, KeyS, KeyT, KeyU, KeyV, KeyW, KeyX, KeyY, KeyZ,
+    Key1 = 0x1E, Key2, Key3, Key4, Key5, Key6, Key7, Key8, Key9, Key0,
+    KeyEnter = 0x28, KeyEscape, KeyBackspace, KeyTab, KeySpace,
+    KeyMinus = 0x2D, KeyEqual, KeyLeftBracket, KeyRightBracket, KeyBackslash,
+    KeySemicolon = 0x33, KeyApostrophe, KeyGrave, KeyComma, KeyPeriod, KeySlash,
+    KeyCapsLock = 0x39,
+    KeyF1 = 0x3A, KeyF2, KeyF3, KeyF4, KeyF5, KeyF6, KeyF7, KeyF8, KeyF9, KeyF10, KeyF11, KeyF12,
+    KeyPrintScreen = 0x46, KeyScrollLock, KeyPause, KeyInsert, KeyHome, KeyPageUp,
+    KeyDelete, KeyEnd, KeyPageDown, KeyRight, KeyLeft, KeyDown, KeyUp,
+    KeyNumLock = 0x53, KeypadSlash, KeypadAsterisk, KeypadMinus, KeypadPlus, KeypadEnter,
+    Keypad1 = 0x59, Keypad2, Keypad3, Keypad4, Keypad5, Keypad6, Keypad7, Keypad8, Keypad9, Keypad0,
+    KeypadPeriod = 0x63, KeyNonUsBackslash, KeyApplication,
+    KeyLeftControl = 0xE0, KeyLeftShift, KeyLeftAlt, KeyLeftSuper,
+    KeyRightControl, KeyRightShift, KeyRightAlt, KeyRightSuper,
 };
 
 enum class PointerEventAction : uint16_t {
@@ -235,6 +302,11 @@ enum class WindowEventAction : uint16_t {
     Moved
 };
 
+// action: Press, Release, or Repeat while held. keycode: a KeyCode.
+// modifiers: KeyModifiers held or locked at the time. text: the UTF-8 the key
+// typed, NUL-terminated, "" for keys that type nothing printable (Enter,
+// Backspace, Tab and Escape included: tell those by keycode). With Control
+// held, text is still the plain character ("c" for Ctrl+C).
 struct KeyEvent {
     KeyEventAction action;
     uint16_t modifiers;
@@ -577,6 +649,29 @@ enum class Syscall : uint64_t {
     GetPeerName,
     GPUVenusProbeCall,
     GPUVenusVulkanCall,
+    Pipe2,
+    Fsync,
+    MmapFile,
+    Msync,
+    FdPath,
+    FdTableStash,
+    FdTableFetch,
+    ThreadClone,
+    SchedSetAffinity,
+    SchedGetAffinity,
+    GetCpu,
+    CpuInfo,
+    NetGetConfig,
+    NetSetConfig,
+    SendTo,
+    RecvFrom,
+    GetTimeNs,
+    SetItimer,
+    GetItimer,
+    GetUnixTimeNs,
+    SetUnixTime,
+    WindowPostEvent,
+    KernelLog,
 };
 
 enum MemoryProtection : std::uint64_t {
@@ -1067,6 +1162,18 @@ inline std::uint64_t poll(PollFD* fds, std::uint64_t nfds) noexcept {
     );
 }
 
+// Waits up to timeoutMs for a descriptor to be ready: 0 checks once,
+// kPollForever waits until one is (or a signal arrives).
+inline constexpr std::uint64_t kPollForever = static_cast<std::uint64_t>(-1);
+inline std::uint64_t poll(PollFD* fds, std::uint64_t nfds, std::uint64_t timeoutMs) noexcept {
+    return _syscall_impl(
+        static_cast<std::uint64_t>(Syscall::Poll),
+        reinterpret_cast<std::uint64_t>(fds),
+        nfds,
+        timeoutMs
+    );
+}
+
 inline std::uint64_t getppid() noexcept {
     return _syscall_impl(static_cast<std::uint64_t>(Syscall::Getppid));
 }
@@ -1296,6 +1403,15 @@ inline bool event_from_message(const IPCMessage& message, Event* event) noexcept
         destination[i] = message.data[i];
     }
     return true;
+}
+
+// Compositor only: queue an input event on a window.
+inline std::uint64_t window_post_event(std::uint64_t windowId, const Event* event) noexcept {
+    return _syscall_impl(
+        static_cast<std::uint64_t>(Syscall::WindowPostEvent),
+        windowId,
+        reinterpret_cast<std::uint64_t>(event)
+    );
 }
 
 inline std::uint64_t event_push(Handle handle, const Event* event, bool wait = true) noexcept {

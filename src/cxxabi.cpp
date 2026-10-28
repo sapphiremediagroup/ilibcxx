@@ -64,6 +64,13 @@ int __cxa_atexit(destructor_func func, void* arg, void* dso_handle) {
     return 0;
 }
 
+// Userland builds with -fno-use-cxa-atexit, so the destructor of a static
+// object is registered through atexit(). It goes in the same table; the extra
+// argument a no-argument function receives is harmless on x86-64.
+int atexit(void (*func)(void)) {
+    return __cxa_atexit(reinterpret_cast<destructor_func>(func), nullptr, nullptr);
+}
+
 void __cxa_finalize(void* dso_handle) {
     for (int i = atexit_count - 1; i >= 0; i--) {
         if (dso_handle == nullptr || atexit_funcs[i].dso_handle == dso_handle) {
