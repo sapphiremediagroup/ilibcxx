@@ -262,7 +262,7 @@ void Panel::paint(Canvas& canvas) {
         canvas.fill(all, background_);
     }
     if (border_) {
-        canvas.frame(all, theme().border);
+        canvas.frame(all, theme().divider);
     }
 }
 
@@ -282,7 +282,7 @@ Label& Label::set_text(const char* text) {
 
 void Label::paint(Canvas& canvas) {
     const Color color = !enabled() ? theme().textDisabled : hasColor_ ? color_ : theme().text;
-    canvas.text({ 0, 0, bounds().width, bounds().height }, text_, theme().font(), color, align_);
+    canvas.text({ 0, 0, bounds().width, bounds().height }, text_, font_ ? *font_ : theme().font(), color, align_);
 }
 
 // ---- Button ------------------------------------------------------------------
@@ -297,6 +297,13 @@ Button::Button(Control* parent, const char* text) : Control(parent) {
 
 Button& Button::set_text(const char* text) {
     copy_text(text_, sizeof(text_), text);
+    invalidate();
+    return *this;
+}
+
+Button& Button::set_icon(const Image* icon, const Image* disabled) {
+    icon_ = icon;
+    disabledIcon_ = disabled;
     invalidate();
     return *this;
 }
@@ -319,15 +326,33 @@ void Button::paint(Canvas& canvas) {
     if (!enabled()) {
         face = t.face;
     }
-    canvas.fill_rounded(all, t.radius, face);
-    if (!primary || !enabled()) {
+    const bool bare = flat_ && !primary && (!enabled() || (!hovered() && !down));
+    if (!bare) {
+        canvas.fill_rounded(all, t.radius, face);
+    }
+    if (!flat_ && (!primary || !enabled())) {
         canvas.frame(all, t.border, 1, t.radius);
     }
     if (focused()) {
         canvas.frame(all, t.focus, 2, t.radius);
     }
     const Color text = !enabled() ? t.textDisabled : primary ? t.accentText : t.text;
-    canvas.text(all.offset(0, down ? 1 : 0), text_, t.font(), text, AlignCenter | AlignMiddle);
+    const Image* icon = !enabled() && disabledIcon_ ? disabledIcon_ : icon_;
+    const int shift = down ? 1 : 0;
+    if (icon && icon->valid() && text_[0] == '\0') {
+        canvas.image(*icon, Point { (all.width - icon->width()) / 2, (all.height - icon->height()) / 2 + shift });
+        return;
+    }
+    Rect label = all.offset(0, shift);
+    if (icon && icon->valid()) {
+        const int width = icon->width() + t.spacing / 2 + t.font().width(text_);
+        const int x = (all.width - width) / 2;
+        canvas.image(*icon, Point { x, (all.height - icon->height()) / 2 + shift });
+        label = { x + icon->width() + t.spacing / 2, shift, all.width - x - icon->width(), all.height };
+        canvas.text(label, text_, t.font(), text, AlignLeft | AlignMiddle);
+        return;
+    }
+    canvas.text(label, text_, t.font(), text, AlignCenter | AlignMiddle);
 }
 
 bool Button::key_down(const KeyEvent& key) {
@@ -462,13 +487,17 @@ void TextBox::paint(Canvas& canvas) {
     const Theme& t = theme();
     const Font& font = t.font();
     const Rect all = { 0, 0, bounds().width, bounds().height };
-    canvas.fill_rounded(all, t.radius, t.field);
-    canvas.frame(all, focused() ? t.focus : t.border, 1, t.radius);
+    canvas.fill_rounded(all, t.fieldRadius, t.field);
+    canvas.frame(all, focused() ? t.focus : t.border, 1, t.fieldRadius);
 
-    const Rect inner = { t.padding, 1, all.width - 2 * t.padding, all.height - 2 };
+    const int left = text_left();
+    if (icon_ && icon_->valid()) {
+        canvas.image(*icon_, Point { t.padding + 2, (all.height - icon_->height()) / 2 });
+    }
+    const Rect inner = { left, 1, all.width - left - t.padding, all.height - 2 };
     Canvas text = canvas.clipped(inner);
     const int top = (all.height - font.line_height()) / 2;
-    const int x0 = t.padding - scroll_;
+    const int x0 = left - scroll_;
     if (length_ == 0 && !focused()) {
         text.text(x0, top + font.ascent(), placeholder_, font, t.textDim);
         return;
@@ -485,9 +514,14 @@ void TextBox::paint(Canvas& canvas) {
     }
 }
 
+int TextBox::text_left() const {
+    const int padding = theme().padding;
+    return icon_ && icon_->valid() ? padding + 2 + icon_->width() + padding / 2 + 2 : padding;
+}
+
 std::size_t TextBox::index_at(int x) const {
     const Font& font = theme().font();
-    int pen = theme().padding - scroll_;
+    int pen = text_left() - scroll_;
     for (std::size_t i = 0; i < length_; ++i) {
         const int advance = font.glyph(static_cast<unsigned char>(text_[i])).advance;
         if (x < pen + advance / 2) {
@@ -499,7 +533,7 @@ std::size_t TextBox::index_at(int x) const {
 }
 
 void TextBox::keep_caret_visible() {
-    const int width = bounds().width - 2 * theme().padding;
+    const int width = bounds().width - text_left() - theme().padding;
     const int caretX = theme().font().width(text_, caret_);
     if (caretX - scroll_ > width - 1) {
         scroll_ = caretX - width + 1;
@@ -705,10 +739,9 @@ Rect ScrollBar::thumb() const {
 
 void ScrollBar::paint(Canvas& canvas) {
     const Theme& t = theme();
-    canvas.fill({ 0, 0, bounds().width, bounds().height }, t.track);
     const Rect knob = thumb();
     const int radius = (vertical_ ? knob.width : knob.height) / 2;
-    canvas.fill_rounded(knob, radius, dragOffset_ >= 0 ? t.facePressed : hovered() ? t.faceHover : t.face);
+    canvas.fill_rounded(knob, radius, dragOffset_ >= 0 || hovered() ? t.thumbHover : t.thumb);
 }
 
 void ScrollBar::mouse_down(const MouseEvent& mouse) {
@@ -839,8 +872,7 @@ void ListBox::set_top(int top) {
 void ListBox::paint(Canvas& canvas) {
     const Theme& t = theme();
     const Rect all = { 0, 0, bounds().width, bounds().height };
-    canvas.fill(all, t.field);
-    canvas.frame(all, focused() ? t.focus : t.border);
+    canvas.fill(all, sidebar_ ? t.panel : t.window);
 
     const int rowWidth = all.width - 2 - (scrollBar_.visible() ? t.scrollBarWidth : 0);
     Canvas rows = canvas.clipped({ 1, 1, rowWidth, all.height - 2 });
@@ -852,13 +884,18 @@ void ListBox::paint(Canvas& canvas) {
         const Rect row = { 1, 1 + r * t.rowHeight, rowWidth, t.rowHeight };
         const bool selected = index == selected_;
         if (selected) {
-            rows.fill(row, focused() ? t.selection : t.face);
+            const Rect band = { row.x + t.padding, row.y + 1, row.width - 2 * t.padding, row.height - 2 };
+            rows.fill_rounded(band, t.radius, sidebar_ ? t.selectionSide : focused() ? t.selection : t.face);
+            if (focused() && !sidebar_) {
+                rows.fill_rounded({ band.x, band.y + (band.height - 16) / 2, 3, 16 }, 2, t.accentLight);
+            }
         }
         if (draw_row) {
             draw_row(rows, index, row, selected);
         } else if (row_text) {
-            rows.text({ row.x + t.padding, row.y, row.width - 2 * t.padding, row.height }, row_text(index), t.font(),
-                      selected && focused() ? t.selectionText : t.text);
+            const int x = row.x + 2 * t.padding + 4;
+            rows.text({ x, row.y, row.right() - x - t.padding, row.height }, row_text(index),
+                      selected ? t.fontMedium() : t.font(), selected && focused() ? t.selectionText : t.text);
         }
     }
 }

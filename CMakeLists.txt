@@ -18,7 +18,6 @@ list(APPEND ILIBC_SOURCES ${ILIBC_UI_SOURCES})
 set_source_files_properties(${ILIBC_UI_SOURCES} PROPERTIES COMPILE_OPTIONS "-O2;-finline-functions")
 list(REMOVE_ITEM ILIBC_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/runtime.cpp)
 list(REMOVE_ITEM ILIBC_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/c_runtime.cpp)
-list(REMOVE_ITEM ILIBC_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/window_runtime.cpp)
 list(REMOVE_ITEM ILIBC_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/new.cpp)
 
 set(ILIBCXX_EXTRAS_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/extras/include)
@@ -38,14 +37,6 @@ target_include_directories(instant_c_crt0
         $<BUILD_INTERFACE:${ILIBCXX_EXTRAS_INCLUDE_DIR}>
 )
 target_compile_options(instant_c_crt0 PRIVATE ${USER_CXX_FLAGS} ${SIZE_CXX_FLAGS})
-
-add_library(instant_window_crt0 OBJECT src/window_runtime.cpp)
-target_include_directories(instant_window_crt0
-    PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<BUILD_INTERFACE:${ILIBCXX_EXTRAS_INCLUDE_DIR}>
-)
-target_compile_options(instant_window_crt0 PRIVATE ${USER_CXX_FLAGS} ${SIZE_CXX_FLAGS})
 
 add_library(ilibcxx SHARED ${ILIBC_SOURCES})
 add_library(ilibcxx::ilibcxx ALIAS ilibcxx)

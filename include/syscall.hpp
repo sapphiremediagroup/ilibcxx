@@ -672,7 +672,69 @@ enum class Syscall : uint64_t {
     SetUnixTime,
     WindowPostEvent,
     KernelLog,
+    GpuTest,
+    Reboot,
+    Display,
+    SocketPair,
+    SocketSendMsg,
+    SocketRecvMsg,
+    SurfaceFromBuffer,   // (dma-buf handle, width << 32 | height, pitch << 32 | format) -> surface handle
+    SurfaceWaitIdle,     // (surface, timeout ms): 0 once no window shows it and the compositor let it go
+    SurfaceExportBuffer, // (surface id; compositor): a GPU-buffer surface's dma-buf as a File handle, or -errno
 };
+
+// Reboot's argument (mirrors the kernel's RebootMode).
+enum class RebootMode : std::uint64_t {
+    Restart = 0,
+    PowerOff = 1,
+};
+
+// GpuTest commands (mirrors the kernel's GpuTestCommand): hardware experiments
+// on the Intel Gen9 GPU, for /bin/gpu-test (root only).
+enum class GpuTestCommand : std::uint64_t {
+    Info = 0,       // map the GGTT and report it (firmware ranges, free space)
+    Gtt = 1,        // buffer objects: bind, CPU access both ways, unbind
+    FlipOn = 2,     // show a test pattern from a buffer object on plane A
+    FlipOff = 3,    // back to the firmware's framebuffer
+    Engine = 4,     // the blitter runs commands that store values to memory
+    Hang = 5,       // a blitter hang is detected, reset, and the engine works again
+    Render = 6,     // the render engine runs commands that store values to memory
+    Irq = 7,        // both engines raise MI_USER_INTERRUPT; the caller sleeps until the MSI
+    Ppgtt = 8,      // a 48-bit per-process address space: a batch in it stores, read back unflushed
+    DrmWithoutGpu = 9, // let /dev/dri/renderD128 open with no Intel GPU (QEMU checks; execbuffer: ENODEV)
+    DrmState = 10,     // the request queue, the engines and what the requests took (gpu-test state)
+};
+
+// Display commands (mirrors the kernel's DisplayCommand) (the graphics-compositor only): tear-free presentation on
+// the Intel Gen9 display. The kernel owns two scanout buffers the size of the
+// screen, mapped write-combining into the caller; the compositor draws into
+// the one not shown, then flips to it (the display takes it at the next
+// vertical blank).
+enum class DisplayCommand : std::uint64_t {
+    Acquire = 0,    // arg: DisplayBuffersInfo*; maps the buffers, fills it in (flags = kDisplayEmulated on
+                    // the way in also accepts the emulation)
+    Flip = 1,       // arg: buffer index; arms the flip and returns at once
+    Wait = 2,       // arg: timeout in ms; sleeps until the last flip is on screen (-ETIMEDOUT)
+    Release = 3,    // the firmware's framebuffer goes back on screen
+    ExportBuffer = 4,   // arg: buffer index; the buffer as an uncached dma-buf (a File handle) to render into on the
+                        // GPU (step 8b); -ENODEV with the emulation
+};
+
+constexpr std::uint64_t kDisplayMaxBuffers = 2;
+
+struct DisplayBuffersInfo {
+    std::uint64_t address[kDisplayMaxBuffers];   // where each buffer is mapped in the caller
+    std::uint32_t count;
+    std::uint32_t width;
+    std::uint32_t height;
+    std::uint32_t pitch;                          // bytes per row (XRGB8888)
+    std::uint32_t flags;                          // kDisplayEmulated
+    std::uint32_t reserved;
+};
+
+// Without the Intel display (QEMU) the kernel emulates the buffers: a flip
+// copies the buffer to the framebuffer. Only for testing the compositor.
+constexpr std::uint32_t kDisplayEmulated = 1;
 
 enum MemoryProtection : std::uint64_t {
     MemoryProtRead = 1ULL << 0,
@@ -846,6 +908,32 @@ inline std::uint64_t sleep(std::uint64_t ms) noexcept {
 
 inline std::uint64_t gettime() noexcept {
     return _syscall_impl(static_cast<std::uint64_t>(Syscall::GetTime));
+}
+
+// The newest `length` bytes (at most 128 KiB) of the kernel log, oldest first.
+// Returns the bytes copied, or -errno.
+inline std::uint64_t kernel_log(char* buffer, std::uint64_t length) noexcept {
+    return _syscall_impl(static_cast<std::uint64_t>(Syscall::KernelLog), reinterpret_cast<std::uint64_t>(buffer), length);
+}
+
+// Runs a GPU experiment (root only). `buffer` receives what the kernel logged
+// while it ran, ending in a "[gpu-test] <command>: ok" or "...: FAILED" line;
+// returns the bytes copied, or -errno (-EPERM, -ENODEV without a Gen9 GPU).
+// Restarts or powers off the machine after flushing the disks (root only).
+// Returns only on failure: -EPERM, -EINVAL.
+inline std::uint64_t reboot(RebootMode mode) noexcept {
+    return _syscall_impl(static_cast<std::uint64_t>(Syscall::Reboot), static_cast<std::uint64_t>(mode));
+}
+
+// Tear-free presentation for the compositor (see DisplayCommand); -errno on
+// failure (-ENODEV without an Intel Gen9 display, -EPERM for anyone else).
+inline std::uint64_t display(DisplayCommand command, std::uint64_t arg) noexcept {
+    return _syscall_impl(static_cast<std::uint64_t>(Syscall::Display), static_cast<std::uint64_t>(command), arg);
+}
+
+inline std::uint64_t gpu_test(GpuTestCommand command, char* buffer, std::uint64_t length) noexcept {
+    return _syscall_impl(static_cast<std::uint64_t>(Syscall::GpuTest), static_cast<std::uint64_t>(command),
+                         reinterpret_cast<std::uint64_t>(buffer), length);
 }
 
 inline std::uint64_t getunixtime() noexcept {
@@ -1268,6 +1356,28 @@ inline std::uint64_t window_set_title(Handle window, const char* title) noexcept
     );
 }
 
+// A surface whose pixels are a GPU buffer: a dma-buf handle (PRIME), the image's
+// size, pitch and format. A commit shows it once the GPU has finished drawing
+// it. -errno on failure.
+inline Handle surface_from_buffer(Handle dmaBuf, std::uint32_t width, std::uint32_t height, std::uint32_t pitch,
+                                  std::uint32_t format = 0) noexcept {
+    return _syscall_impl(static_cast<std::uint64_t>(Syscall::SurfaceFromBuffer), dmaBuf,
+                         (static_cast<std::uint64_t>(width) << 32) | height,
+                         (static_cast<std::uint64_t>(pitch) << 32) | format);
+}
+
+// Waits until no window shows the surface and the compositor let it go, so
+// it can be drawn into again. 0, or -ETIMEDOUT / -EINTR.
+inline std::uint64_t surface_wait_idle(Handle surface, std::uint64_t timeoutMs) noexcept {
+    return _syscall_impl(static_cast<std::uint64_t>(Syscall::SurfaceWaitIdle), surface, timeoutMs);
+}
+
+// The compositor only: a GPU-buffer surface's dma-buf (by the id the window
+// list names) as a new File handle; -EINVAL for a shared-memory surface.
+inline std::uint64_t surface_export_buffer(std::uint64_t surfaceId) noexcept {
+    return _syscall_impl(static_cast<std::uint64_t>(Syscall::SurfaceExportBuffer), surfaceId);
+}
+
 inline std::uint64_t window_attach_surface(Handle window, Handle surface) noexcept {
     return _syscall_impl(static_cast<std::uint64_t>(Syscall::WindowAttachSurface), window, surface);
 }
@@ -1292,8 +1402,14 @@ inline std::uint64_t compositor_resize_window(std::uint64_t windowId, std::int32
     return _syscall_impl(static_cast<std::uint64_t>(Syscall::WindowResize), windowId, static_cast<std::uint64_t>(width), static_cast<std::uint64_t>(height));
 }
 
-inline std::uint64_t compositor_control_window(std::uint64_t windowId, WindowControlAction action) noexcept {
-    return _syscall_impl(static_cast<std::uint64_t>(Syscall::WindowControl), windowId, static_cast<std::uint64_t>(action));
+// Maximize puts the content at (maxX, maxY), maxWidth x maxHeight; with no
+// size the kernel uses the screen less 16 px on each side.
+inline std::uint64_t compositor_control_window(std::uint64_t windowId, WindowControlAction action, std::int32_t maxX = 0,
+                                               std::int32_t maxY = 0, std::int32_t maxWidth = 0,
+                                               std::int32_t maxHeight = 0) noexcept {
+    const std::uint64_t xy = static_cast<std::uint32_t>(maxX) | (static_cast<std::uint64_t>(static_cast<std::uint32_t>(maxY)) << 32);
+    return _syscall_impl(static_cast<std::uint64_t>(Syscall::WindowControl), windowId, static_cast<std::uint64_t>(action),
+                         xy, static_cast<std::uint64_t>(maxWidth), static_cast<std::uint64_t>(maxHeight));
 }
 
 inline Handle queue_create() noexcept {

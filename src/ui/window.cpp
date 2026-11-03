@@ -219,8 +219,13 @@ int Window::run(const WindowOptions& options) {
     while (running_) {
         paint();
 
-        std::PollFD wait = { static_cast<std::int64_t>(events_), POLLIN, 0 };
-        std::poll(&wait, 1, next_wait_ms());
+        std::PollFD wait[1 + kMaxWatches] = {};
+        wait[0] = { static_cast<std::int64_t>(events_), POLLIN, 0 };
+        const int watched = watchCount_;
+        for (int i = 0; i < watched; ++i) {
+            wait[1 + i] = { static_cast<std::int64_t>(watches_[i]), POLLIN, 0 };
+        }
+        std::poll(wait, static_cast<std::uint64_t>(1 + watched), next_wait_ms());
 
         // Everything queued, then a resize to the latest size only.
         for (;;) {
@@ -241,6 +246,9 @@ int Window::run(const WindowOptions& options) {
                 pendingWidth_ = width_;
                 pendingHeight_ = height_;
             }
+        }
+        if (running_) {
+            run_ready_watches(wait + 1, watched);
         }
         if (running_) {
             run_due_timers();
@@ -297,6 +305,31 @@ std::uint64_t Window::next_wait_ms() const {
         }
     }
     return soonest;
+}
+
+bool Window::watch(std::Handle handle) {
+    if (watchCount_ == kMaxWatches) {
+        return false;
+    }
+    watches_[watchCount_++] = handle;
+    return true;
+}
+
+void Window::unwatch(std::Handle handle) {
+    for (int i = 0; i < watchCount_; ++i) {
+        if (watches_[i] == handle) {
+            watches_[i] = watches_[--watchCount_];
+            return;
+        }
+    }
+}
+
+void Window::run_ready_watches(const std::PollFD* ready, int count) {
+    for (int i = 0; i < count && running_; ++i) {
+        if ((ready[i].revents & (POLLIN | POLLHUP | POLLERR)) != 0) {
+            on_readable(static_cast<std::Handle>(ready[i].fd));
+        }
+    }
 }
 
 void Window::run_due_timers() {

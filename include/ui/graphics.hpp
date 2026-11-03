@@ -116,7 +116,11 @@ public:
     Font& operator=(Font&& other) noexcept;
     ~Font();
 
+    // `pixelHeight` from the top of the tallest glyph to the bottom of the
+    // lowest; load_em sizes the em square instead, as design tools do (13 px
+    // in Figma is load_em(path, 13)).
     bool load(const char* path, std::uint32_t pixelHeight);
+    bool load_em(const char* path, float emPixels);
     void reset();
 
     bool valid() const { return data_ != nullptr; }
@@ -131,10 +135,12 @@ public:
     // `out` (always terminated). Returns the width of what was written.
     int fit(const char* text, int maxWidth, char* out, std::size_t outSize) const;
 
-    // The desktop's UI font (JetBrains Mono, 13 px), loaded on first use.
+    // The desktop's UI font (Stack Sans Text, 13 px em), loaded on first use.
     static Font& ui();
 
 private:
+    bool load_scaled(const char* path, float size, bool em);
+
     struct Data;
     Data* data_ = nullptr;
 };
@@ -164,6 +170,9 @@ public:
     bool resize(int width, int height);
     // This image becomes a copy of `source` scaled to width x height.
     bool scaled_from(const Image& source, int width, int height);
+    // Every pixel takes `color`'s red, green and blue, keeping its alpha
+    // (colours a one-colour icon).
+    void tint(Color color);
     void reset();
 
     bool valid() const { return pixels_ != nullptr; }

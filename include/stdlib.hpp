@@ -2,8 +2,6 @@
 
 #include <cstdlib.hpp>
 #include <initializer_list.hpp>
-#include <instant/font.hpp>
-#include <instant/window.hpp>
 #include <optional.hpp>
 #include <shared_ptr.hpp>
 #include <string.hpp>

@@ -197,38 +197,6 @@ static_assert(sizeof(GlyphRowRequest) <= sizeof(std::IPCMessage::data));
 static_assert(sizeof(GlyphRowReply) <= sizeof(std::IPCMessage::data));
 }
 
-namespace desktop_shell {
-inline constexpr char NAME[] = "desktop.shell";
-inline constexpr std::uint16_t VERSION = 1;
-
-enum class Opcode : std::uint16_t {
-    Hello = 1,
-    SetBackground = 2,
-};
-
-struct HelloRequest {
-    MessageHeader header;
-};
-
-struct HelloReply {
-    MessageHeader header;
-    std::uint16_t status;
-    std::uint16_t reserved0;
-    char service_name[32];
-};
-
-struct SetBackgroundRequest {
-    MessageHeader header;
-    char path[192];
-};
-
-struct SetBackgroundReply {
-    MessageHeader header;
-    std::uint16_t status;
-    std::uint16_t reserved0;
-};
-}
-
 namespace session_manager {
 inline constexpr char NAME[] = "session.manager";
 inline constexpr std::uint16_t VERSION = 1;

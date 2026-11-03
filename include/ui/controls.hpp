@@ -191,6 +191,8 @@ public:
     const char* text() const { return text_; }
     Label& set_align(std::uint32_t align) { align_ = align; invalidate(); return *this; }
     Label& set_color(Color color) { color_ = color; hasColor_ = true; invalidate(); return *this; }
+    // One of the theme's fonts (theme().fontLabel() ...); the body font by default.
+    Label& set_font(const Font* font) { font_ = font; invalidate(); return *this; }
 
 protected:
     void paint(Canvas& canvas) override;
@@ -200,6 +202,7 @@ private:
     std::uint32_t align_ = AlignLeft | AlignMiddle;
     Color color_ = {};
     bool hasColor_ = false;
+    const Font* font_ = nullptr;
 };
 
 class Button : public Control {
@@ -208,6 +211,11 @@ public:
     Button(Control* parent, const char* text = "");
     Button& set_text(const char* text);
     const char* text() const { return text_; }
+    // An icon, drawn left of the text (or alone, centred); `disabled` is the
+    // one shown while the button is disabled. Not copied: they must outlive it.
+    Button& set_icon(const Image* icon, const Image* disabled = nullptr);
+    // A toolbar button: no face or border until the pointer is on it.
+    Button& set_flat(bool flat) { flat_ = flat; invalidate(); return *this; }
     // Pressed by the mouse, Space or Enter when focused, or Enter (the
     // window's default button) / Escape (its cancel button) anywhere.
     void click();
@@ -227,6 +235,9 @@ protected:
 
 private:
     char text_[64] = {};
+    const Image* icon_ = nullptr;
+    const Image* disabledIcon_ = nullptr;
+    bool flat_ = false;
     bool pressed_ = false;   // held down with the pointer still on it
 };
 
@@ -264,6 +275,8 @@ public:
     TextBox& set_text(const char* text);
     const char* text() const { return text_; }
     TextBox& set_placeholder(const char* text);
+    // An icon inside the field, left of the text (a search box's glass).
+    TextBox& set_icon(const Image* icon) { icon_ = icon; invalidate(); return *this; }
     void select_all();
 
     Callback<void(const char*)> on_change;
@@ -286,8 +299,11 @@ private:
     void keep_caret_visible();
     void changed();
 
+    int text_left() const;
+
     char text_[kMaxLength + 1] = {};
     char placeholder_[64] = {};
+    const Image* icon_ = nullptr;
     std::size_t length_ = 0;
     std::size_t caret_ = 0;
     std::size_t anchor_ = 0;     // the other end of the selection
@@ -337,6 +353,9 @@ public:
     int count() const { return count_; }
     ListBox& set_selected(int row);
     int selected() const { return selected_; }
+    // A side panel's list: the panel colour behind it and a softer
+    // selection without the marker.
+    ListBox& set_sidebar(bool sidebar) { sidebar_ = sidebar; invalidate(); return *this; }
     void ensure_visible(int row);
 
     Callback<const char*(int)> row_text;
@@ -360,6 +379,7 @@ private:
     void update_scroll_bar();
 
     ScrollBar scrollBar_;
+    bool sidebar_ = false;
     int count_ = 0;
     int selected_ = -1;
     int top_ = 0;

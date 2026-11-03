@@ -143,24 +143,57 @@ bool Image::load_svg(const char* path, int width, int height) {
         reset();
         return false;
     }
-    bool ok = create(width, height);
+    // The renderer draws opaque pixels onto a background (it was made for
+    // framebuffers), so the drawing is rendered on black and on white: where
+    // the two differ the background shows through, which gives the alpha,
+    // and the render on black is the colour times that alpha.
+    const std::size_t count = static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
+    std::uint32_t* onWhite = new (std::nothrow) std::uint32_t[count];
+    bool ok = onWhite && create(width, height);
+    std::SvgRenderer::RenderOptions options = std::SvgRenderer::default_options();
+    options.x = 0;
+    options.y = 0;
+    options.width = width;
+    options.height = height;
+    options.clear = true;
     if (ok) {
-        const std::SvgRenderer::PixelBuffer target = {
-            reinterpret_cast<std::uint32_t*>(pixels_), width, height, width };
-        std::SvgRenderer::RenderOptions options = std::SvgRenderer::default_options();
-        options.x = 0;
-        options.y = 0;
-        options.width = width;
-        options.height = height;
-        options.clear = true;
         options.clearColor = 0;
-        ok = std::SvgRenderer::render(reinterpret_cast<const char*>(text), size, target, options);
+        ok = std::SvgRenderer::render(reinterpret_cast<const char*>(text), size,
+                                      { reinterpret_cast<std::uint32_t*>(pixels_), width, height, width }, options);
     }
+    if (ok) {
+        options.clearColor = 0x00FFFFFFU;
+        ok = std::SvgRenderer::render(reinterpret_cast<const char*>(text), size, { onWhite, width, height, width },
+                                      options);
+    }
+    for (std::size_t i = 0; ok && i < count; ++i) {
+        Color& pixel = pixels_[i];
+        const Color white = Color::from_word(onWhite[i]);
+        const int alpha = 255 - (static_cast<int>(white.g) - static_cast<int>(pixel.g));
+        if (alpha <= 0) {
+            pixel = kTransparent;
+            continue;
+        }
+        const auto unblend = [alpha](std::uint8_t c) {
+            const int value = (static_cast<int>(c) * 255 + alpha / 2) / alpha;
+            return static_cast<std::uint8_t>(value > 255 ? 255 : value);
+        };
+        pixel = { unblend(pixel.b), unblend(pixel.g), unblend(pixel.r),
+                  static_cast<std::uint8_t>(alpha > 255 ? 255 : alpha) };
+    }
+    delete[] onWhite;
     delete[] text;
     if (!ok) {
         reset();
     }
     return ok;
+}
+
+void Image::tint(Color color) {
+    const std::size_t count = static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_);
+    for (std::size_t i = 0; i < count; ++i) {
+        pixels_[i] = { color.b, color.g, color.r, pixels_[i].a };
+    }
 }
 
 bool Image::resize(int width, int height) {

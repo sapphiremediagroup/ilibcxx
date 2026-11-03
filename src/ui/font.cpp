@@ -87,8 +87,10 @@ constexpr int kFirstGlyph = 32;
 constexpr int kLastGlyph = 126;
 constexpr int kSupersample = 2;
 constexpr int kNoGlyphAdvance = 6;
-constexpr char kUIFontPath[] = "/bin/JetBrainsMono-Regular.ttf";
-constexpr std::uint32_t kUIFontPixelHeight = 13;
+constexpr char kUIFontPath[] = "/bin/StackSansText-Regular.ttf";
+constexpr float kUIFontEm = 13.0f;
+constexpr char kFallbackFontPath[] = "/bin/JetBrainsMono-Regular.ttf";
+constexpr std::uint32_t kFallbackPixelHeight = 13;
 
 int floor_div(int value, int divisor) {
     if (value >= 0) {
@@ -164,6 +166,14 @@ void Font::reset() {
 }
 
 bool Font::load(const char* path, std::uint32_t pixelHeight) {
+    return load_scaled(path, static_cast<float>(pixelHeight), false);
+}
+
+bool Font::load_em(const char* path, float emPixels) {
+    return load_scaled(path, emPixels, true);
+}
+
+bool Font::load_scaled(const char* path, float fontSize, bool em) {
     reset();
     std::Stat stat = {};
     if (!path || std::stat(path, &stat) == static_cast<std::uint64_t>(-1) || stat.st_size == 0) {
@@ -198,7 +208,8 @@ bool Font::load(const char* path, std::uint32_t pixelHeight) {
         delete data;
         return false;
     }
-    data->scale = stbtt_ScaleForPixelHeight(&data->info, static_cast<float>(pixelHeight));
+    data->scale = em ? stbtt_ScaleForMappingEmToPixels(&data->info, fontSize)
+                     : stbtt_ScaleForPixelHeight(&data->info, fontSize);
     int ascent = 0;
     int descent = 0;
     int lineGap = 0;
@@ -206,7 +217,7 @@ bool Font::load(const char* path, std::uint32_t pixelHeight) {
     data->ascent = static_cast<int>(ascent * data->scale + 0.999f);
     data->lineHeight = static_cast<int>((ascent - descent + lineGap) * data->scale + 0.999f);
     if (data->lineHeight <= 0) {
-        data->lineHeight = static_cast<int>(pixelHeight) + 4;
+        data->lineHeight = static_cast<int>(fontSize) + 4;
     }
 
     const float glyphScale = data->scale * static_cast<float>(kSupersample);
@@ -215,7 +226,9 @@ bool Font::load(const char* path, std::uint32_t pixelHeight) {
         int advance = 0;
         int bearing = 0;
         stbtt_GetCodepointHMetrics(&data->info, ch, &advance, &bearing);
-        glyph.advance = static_cast<int>(advance * data->scale + 0.999f);
+        // Rounded to the nearest pixel: rounding every glyph up spreads a
+        // proportional font's text out.
+        glyph.advance = static_cast<int>(advance * data->scale + 0.5f);
         if (glyph.advance <= 0) {
             glyph.advance = kNoGlyphAdvance;
         }
@@ -329,7 +342,9 @@ Font& Font::ui() {
     static bool tried = false;
     if (!tried) {
         tried = true;
-        font.load(kUIFontPath, kUIFontPixelHeight);
+        if (!font.load_em(kUIFontPath, kUIFontEm)) {
+            font.load(kFallbackFontPath, kFallbackPixelHeight);
+        }
     }
     return font;
 }

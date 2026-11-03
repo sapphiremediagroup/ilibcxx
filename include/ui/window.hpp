@@ -74,6 +74,12 @@ public:
     int set_timer(int ms, bool repeat = true);
     void kill_timer(int id);
 
+    // Also wakes the loop when `handle` (a file, pipe, PTY or socket) has
+    // something to read or was hung up; on_readable(handle) is called then.
+    // Returns false when kMaxWatches handles are watched already.
+    bool watch(std::Handle handle);
+    void unwatch(std::Handle handle);
+
     void set_title(const char* title);
     Size client_size() const { return { width_, height_ }; }
     bool focused() const { return focused_; }
@@ -121,6 +127,8 @@ protected:
     virtual void on_wheel(const MouseEvent& mouse, int delta) { (void)mouse; (void)delta; }
     virtual void on_focus(bool focused) { (void)focused; }
     virtual void on_timer(int id) { (void)id; }
+    // A watched handle can be read (or its other end is gone).
+    virtual void on_readable(std::Handle handle) { (void)handle; }
     // The close button: return false to stay open.
     virtual bool on_close() { return true; }
     virtual void on_destroy() {}
@@ -135,6 +143,7 @@ private:
         bool repeat;
     };
     static constexpr int kMaxTimers = 16;
+    static constexpr int kMaxWatches = 4;
 
     bool open(const WindowOptions& options);
     bool make_buffer(int width, int height);
@@ -143,6 +152,7 @@ private:
     void dispatch_key(const std::KeyEvent& event);
     void dispatch_pointer(const std::PointerEvent& event);
     void run_due_timers();
+    void run_ready_watches(const std::PollFD* ready, int count);
     std::uint64_t next_wait_ms() const;
     void paint();
     void move_focus(bool backwards);
@@ -177,6 +187,8 @@ private:
     int clicks_ = 0;
     std::uint8_t keysHeld_[32] = {};
     Timer timers_[kMaxTimers] = {};
+    std::Handle watches_[kMaxWatches] = {};
+    int watchCount_ = 0;
     int nextTimerId_ = 1;
 };
 
